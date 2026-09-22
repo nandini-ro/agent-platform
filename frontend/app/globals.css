@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* next/font sets --font-inter / --font-jetbrains-mono on <html>; mapping them
+   here makes them the default body font and backs `font-sans` / `font-mono`. */
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+@theme {
+  /* One step below text-xs, for badges and dense metadata. Below this the UI
+     stops being readable, so nothing should use a smaller size. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(1 / 0.6875);
+}
+
+/* The app is a fixed-height two-pane shell; the panes scroll, not the page. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+@layer base {
+  body {
+    /* Inter ships every weight, so never let the browser fake one. */
+    font-synthesis-weight: none;
+  }
+
+  /* Ids, durations and token counts sit in columns or change in place; lining
+     figures of one width keep them from jittering. */
+  code,
+  kbd,
+  pre,
+  samp {
+    font-variant-numeric: tabular-nums;
+  }
+}

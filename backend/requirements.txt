@@ -1,0 +1,23 @@
+# Core backend. Garak lives in a separate venv (requirements-garak.txt) so its
+# dependency tree never constrains this one.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+sqlalchemy==2.0.54
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.1
+sse-starlette==3.4.11
+httpx==0.28.1
+jsonschema==4.26.0
+pyyaml==6.0.3
+
+# LLM providers
+openai==3.16.2
+google-genai==2.24.0
+
+# MCP (Phase 3)
+mcp==2.2.0
+
+# Tests
+pytest==9.1.1
+pytest-asyncio==1.4.0

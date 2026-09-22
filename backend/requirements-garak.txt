@@ -1,0 +1,7 @@
+# Garak lives in its own virtualenv (.venv-garak) because it pulls a large,
+# tightly-pinned ML dependency tree that would otherwise constrain the backend.
+# The backend never imports it - it is invoked as a subprocess.
+#
+#   python3.12 -m venv .venv-garak
+#   .venv-garak/bin/pip install -r requirements-garak.txt
+garak==0.17.0

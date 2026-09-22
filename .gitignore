@@ -1,0 +1,14 @@
+.venv/
+.venv-garak/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.db
+garak_runs/
+.pytest_cache/
+node_modules/
+.next/
+.DS_Store
+out/
+next-env.d.ts
