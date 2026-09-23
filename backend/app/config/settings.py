@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     tool_timeout_seconds: float = 10.0
     mcp_timeout_seconds: float = 30.0
     llm_timeout_seconds: float = 120.0
-    max_tool_iterations: int = 5
+    max_tool_iterations: int = 12
     max_history_messages: int = 40
 
     # --- User-defined HTTP tools ------------------------------------------

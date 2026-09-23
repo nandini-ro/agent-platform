@@ -28,18 +28,27 @@ import shutil
 import time
 from dataclasses import dataclass
 from typing import Any
-from xmlrpc import server
 
 from app.config.settings import get_settings
 from app.models.mcp_server import MCPServer
 from app.services.llm.base import ToolSpec
 
+
 logger = logging.getLogger(__name__)
 
+
 _TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+
 # Environment variables every subprocess needs to start at all. Anything else
 # must be named explicitly in the server's env_keys.
-_BASE_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "SYSTEMROOT", "TMPDIR")
+_BASE_ENV_KEYS = (
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "SYSTEMROOT",
+    "TMPDIR",
+)
 
 
 class MCPError(Exception):
@@ -80,8 +89,13 @@ def slugify(name: str) -> str:
 class MCPManager:
     def __init__(self) -> None:
         self.settings = get_settings()
+
         # server_id -> (expires_at, tools)
-        self._cache: dict[str, tuple[float, list[DiscoveredTool]]] = {}
+        self._cache: dict[
+            str,
+            tuple[float, list[DiscoveredTool]],
+        ] = {}
+
         self._cache_ttl = 300.0
 
     # -- process configuration -------------------------------------------
@@ -95,36 +109,52 @@ class MCPManager:
         unrelated secrets that happen to live in the backend's environment.
         """
         env = {
-            key: os.environ[key] for key in _BASE_ENV_KEYS if key in os.environ
+            key: os.environ[key]
+            for key in _BASE_ENV_KEYS
+            if key in os.environ
         }
+
         for key in server.env_keys or []:
             value = os.environ.get(key)
+
             if value is None:
                 logger.warning(
-                    "MCP server %s requests env var %s which is not set", server.slug, key
+                    "MCP server %s requests env var %s which is not set",
+                    server.slug,
+                    key,
                 )
                 continue
+
             env[key] = value
+
         return env
 
     def _build_headers(self, server: MCPServer) -> dict[str, str]:
-        """Resolve the configured headers, expanding {{env:NAME}} references.
+        """Resolve configured headers, expanding {{env:NAME}} references.
 
         Resolution happens here, at connection time, so a secret exists only
         for the duration of the call - never in the database, never in an API
         response. Hop-by-hop headers are dropped: httpx owns those, and letting
         a user set them is how request smuggling starts.
         """
-        from app.services.http_tool import FORBIDDEN_HEADERS, resolve_env
+        from app.services.http_tool import (
+            FORBIDDEN_HEADERS,
+            resolve_env,
+        )
 
         headers: dict[str, str] = {}
+
         for key, value in (server.headers or {}).items():
             if key.lower() in FORBIDDEN_HEADERS:
                 logger.warning(
-                    "MCP server %s: ignoring forbidden header %s", server.slug, key
+                    "MCP server %s: ignoring forbidden header %s",
+                    server.slug,
+                    key,
                 )
                 continue
+
             headers[key] = resolve_env(str(value))
+
         return headers
 
     def _target(self, server: MCPServer):
@@ -136,19 +166,29 @@ class MCPManager:
         """
         if server.transport == "stdio":
             return self._stdio_target(server)
+
         if server.transport == "http":
             return self._http_target(server)
+
         raise MCPError(
-            f"Transport '{server.transport}' is not supported; use 'stdio' or 'http'."
+            f"Transport '{server.transport}' is not supported; "
+            "use 'stdio' or 'http'."
         )
 
     def _stdio_target(self, server: MCPServer):
         from mcp import StdioServerParameters
 
         if not server.command:
-            raise MCPError(f"MCP server '{server.name}' has no command configured.")
-        if shutil.which(server.command) is None and not os.path.exists(server.command):
+            raise MCPError(
+                f"MCP server '{server.name}' has no command configured."
+            )
+
+        if (
+            shutil.which(server.command) is None
+            and not os.path.exists(server.command)
+        ):
             raise MCPError(f"Command not found: {server.command}")
+
         return StdioServerParameters(
             command=server.command,
             args=list(server.args or []),
@@ -162,66 +202,110 @@ class MCPManager:
             streamable_http_client,
         )
 
-        from app.services.http_tool import HTTPToolError, assert_safe_url
+        from app.services.http_tool import (
+            HTTPToolError,
+            assert_safe_url,
+        )
 
         if not server.url:
-            raise MCPError(f"MCP server '{server.name}' has no URL configured.")
+            raise MCPError(
+                f"MCP server '{server.name}' has no URL configured."
+            )
+
         try:
             assert_safe_url(server.url)
         except HTTPToolError as exc:
             raise MCPError(str(exc)) from exc
 
         headers = self._build_headers(server)
-        http_client = create_mcp_http_client(headers=headers or None)
+
+        http_client = create_mcp_http_client(
+            headers=headers or None
+        )
+
         # Already the SDK's default; pinned because the whole point of
         # assert_safe_url is undone by a redirect to an address it never saw.
         http_client.follow_redirects = False
-        return streamable_http_client(server.url, http_client=http_client)
+
+        return streamable_http_client(
+            server.url,
+            http_client=http_client,
+        )
 
     # -- discovery --------------------------------------------------------
 
     async def discover(
-        self, server: MCPServer, *, use_cache: bool = True
+        self,
+        server: MCPServer,
+        *,
+        use_cache: bool = True,
     ) -> list[DiscoveredTool]:
         """List the tools a server offers, caching the result."""
         if use_cache:
             cached = self._cache.get(server.id)
+
             if cached and cached[0] > time.monotonic():
                 return cached[1]
 
         from mcp import Client
 
         target = self._target(server)
+
         try:
             async with Client(
-                target, read_timeout_seconds=self.settings.mcp_timeout_seconds
+                target,
+                read_timeout_seconds=self.settings.mcp_timeout_seconds,
             ) as client:
                 result = await client.list_tools()
+
         except MCPError:
             raise
-        except Exception as exc:  # noqa: BLE001 - surface any transport failure uniformly
-            raise MCPError(f"Could not connect to '{server.name}': {exc}") from exc
+
+        except Exception as exc:  # noqa: BLE001
+            raise MCPError(
+                f"Could not connect to '{server.name}': {exc}"
+            ) from exc
 
         tools: list[DiscoveredTool] = []
+
         for tool in result.tools:
-            qualified = qualify(server.slug, tool.name)
+            qualified = qualify(
+                server.slug,
+                tool.name,
+            )
+
             if not _TOOL_NAME_RE.match(qualified):
                 logger.warning(
-                    "skipping MCP tool with unusable name: %s", qualified
+                    "skipping MCP tool with unusable name: %s",
+                    qualified,
                 )
                 continue
+
             tools.append(
                 DiscoveredTool(
                     server_id=server.id,
                     server_slug=server.slug,
                     tool_name=tool.name,
                     qualified_name=qualified,
-                    description=tool.description or f"MCP tool {tool.name}",
-                    input_schema=tool.input_schema or {"type": "object", "properties": {}},
+                    description=(
+                        tool.description
+                        or f"MCP tool {tool.name}"
+                    ),
+                    input_schema=(
+                        tool.input_schema
+                        or {
+                            "type": "object",
+                            "properties": {},
+                        }
+                    ),
                 )
             )
 
-        self._cache[server.id] = (time.monotonic() + self._cache_ttl, tools)
+        self._cache[server.id] = (
+            time.monotonic() + self._cache_ttl,
+            tools,
+        )
+
         return tools
 
     def invalidate(self, server_id: str) -> None:
@@ -230,64 +314,91 @@ class MCPManager:
     # -- invocation -------------------------------------------------------
 
     async def call_tool(
-        self, server: MCPServer, tool_name: str, arguments: dict[str, Any]
+        self,
+        server: MCPServer,
+        tool_name: str,
+        arguments: dict[str, Any],
     ) -> str:
         """Invoke one tool and flatten the result to text for the model."""
         from mcp import Client
 
-    # Financial Intelligence tools use a strict allowlist of arguments.
-    #  Reject unexpected fields instead of silently ignoring them.
+        # Financial Intelligence tools use a strict allowlist of arguments.
+        # Reject unexpected fields instead of silently ignoring them.
+        #
+        # IMPORTANT:
+        # This validation applies only to our local Financial Intelligence
+        # server. Other MCP servers use their own discovered input schemas.
         if server.slug == "financial-intelligence":
             allowed_arguments = {
-            "financial_server_status": set(),
-            "get_my_holdings": set(),
-            "get_my_watchlist": set(),
-            "get_my_transactions": {"symbol"},
-        }
+                "financial_server_status": set(),
+                "get_my_holdings": set(),
+                "get_my_watchlist": set(),
+                "get_my_transactions": {"symbol"},
+            }
 
-        allowed = allowed_arguments.get(tool_name)
+            allowed = allowed_arguments.get(tool_name)
 
-        if allowed is not None:
-            unexpected = set(arguments) - allowed
+            if allowed is not None:
+                unexpected = set(arguments) - allowed
 
-            if unexpected:
-                raise MCPError(
-                    f"Unexpected argument(s) for '{tool_name}': "
-                    f"{', '.join(sorted(unexpected))}"
-                )
+                if unexpected:
+                    raise MCPError(
+                        f"Unexpected argument(s) for '{tool_name}': "
+                        f"{', '.join(sorted(unexpected))}"
+                    )
 
+        # All MCP servers continue from here, including remote HTTPS MCPs.
         target = self._target(server)
+
         try:
             async with Client(
-                target, read_timeout_seconds=self.settings.mcp_timeout_seconds
+                target,
+                read_timeout_seconds=self.settings.mcp_timeout_seconds,
             ) as client:
                 result = await client.call_tool(
                     tool_name,
                     arguments,
-                    read_timeout_seconds=self.settings.mcp_timeout_seconds,
+                    read_timeout_seconds=(
+                        self.settings.mcp_timeout_seconds
+                    ),
                 )
+
         except MCPError:
             raise
+
         except Exception as exc:  # noqa: BLE001
-            raise MCPError(f"MCP call '{tool_name}' failed: {exc}") from exc
+            raise MCPError(
+                f"MCP call '{tool_name}' failed: {exc}"
+            ) from exc
 
         text = _flatten(result)
+
         if result.is_error:
-            raise MCPError(text or f"MCP tool '{tool_name}' reported an error.")
+            raise MCPError(
+                text
+                or f"MCP tool '{tool_name}' reported an error."
+            )
+
         return text
 
 
 def _flatten(result: Any) -> str:
     """Reduce a CallToolResult to a plain string."""
     parts: list[str] = []
+
     for block in result.content or []:
         text = getattr(block, "text", None)
+
         if text:
             parts.append(text)
         else:
-            parts.append(f"[{getattr(block, 'type', 'content')}]")
+            parts.append(
+                f"[{getattr(block, 'type', 'content')}]"
+            )
+
     if not parts and result.structured_content is not None:
         return str(result.structured_content)
+
     return "\n".join(parts)
 
 

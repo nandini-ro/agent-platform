@@ -42,6 +42,15 @@ from app.services.tool_registry import registry as default_tool_registry
 
 logger = logging.getLogger(__name__)
 
+# Sent on the final, tool-less call when the iteration budget runs out. The
+# model is told why its tools vanished, so it reports what it could not do
+# instead of answering from memory as though the calls had succeeded.
+_BUDGET_NOTICE = (
+    "The tool-call budget for this turn is exhausted; no further tools can "
+    "run. Answer now from the tool results above. Do not invent results for "
+    "tools that never ran - say plainly which ones were not completed."
+)
+
 
 @dataclass
 class ToolInvocation:
@@ -75,6 +84,9 @@ class RuntimeResult:
     provider: str = ""
     model: str = ""
     iterations: int = 1
+    # True when the loop hit max_tool_iterations with the model still asking
+    # for tools: the answer was forced early rather than volunteered.
+    budget_exhausted: bool = False
 
     def metadata(self) -> dict:
         return {
@@ -82,6 +94,7 @@ class RuntimeResult:
             "model": self.model,
             "usage": self.usage,
             "iterations": self.iterations,
+            "budget_exhausted": self.budget_exhausted,
         }
 
 
@@ -309,6 +322,10 @@ class AgentRuntime:
         limit = self.settings.max_history_messages
         return history[-limit:] if len(history) > limit else history
 
+    def _wrap_up_messages(self, messages: list[LLMMessage]) -> list[LLMMessage]:
+        """History plus the notice that ends a budget-exhausted turn."""
+        return messages + [LLMMessage(role="user", content=_BUDGET_NOTICE)]
+
     # -- execution --------------------------------------------------------
 
     async def run(
@@ -342,13 +359,39 @@ class AgentRuntime:
             messages, step = await self._apply_tool_calls(messages, response)
             invocations.extend(step)
 
+        text = response.text if response else ""
+
+        # Leaving the loop with tool calls still pending means the budget ran
+        # out mid-plan: those results are in `messages` but nothing has been
+        # said about them. Spend one more call, with no tools offered, so the
+        # turn ends with an answer rather than the empty text of a tool-call
+        # response.
+        budget_exhausted = bool(response and response.tool_calls)
+        if budget_exhausted:
+            logger.warning(
+                "agent %s hit max_tool_iterations (%d); forcing a final answer",
+                self.agent.id,
+                self.settings.max_tool_iterations,
+            )
+            final = await self.provider.generate(
+                model=self.agent.model,
+                system=self._system_prompt(),
+                messages=self._wrap_up_messages(messages),
+                tools=None,
+                temperature=self.agent.temperature,
+                max_tokens=self.agent.max_tokens,
+            )
+            usage = _merge_usage(usage, final.usage)
+            text = final.text
+
         return RuntimeResult(
-            text=(response.text if response else ""),
+            text=text,
             tool_calls=invocations,
             usage=usage,
             provider=self.agent.provider,
             model=self.agent.model,
             iterations=iterations,
+            budget_exhausted=budget_exhausted,
         )
 
     async def stream(
@@ -367,10 +410,11 @@ class AgentRuntime:
         usage: dict[str, Any] = {}
         iterations = 0
         final_text = ""
+        response: LLMResponse | None = None
 
         while iterations < self.settings.max_tool_iterations:
             iterations += 1
-            response: LLMResponse | None = None
+            response = None
             async for event in self.provider.stream(
                 model=self.agent.model,
                 system=self._system_prompt(),
@@ -397,6 +441,31 @@ class AgentRuntime:
                 yield inv
             invocations.extend(step)
 
+        # Same wrap-up as `run`, streamed: without it a turn that exhausts its
+        # budget ends on a tool badge and no words at all.
+        budget_exhausted = bool(response and response.tool_calls)
+        if budget_exhausted:
+            logger.warning(
+                "agent %s hit max_tool_iterations (%d); forcing a final answer",
+                self.agent.id,
+                self.settings.max_tool_iterations,
+            )
+            final_text = ""
+            async for event in self.provider.stream(
+                model=self.agent.model,
+                system=self._system_prompt(),
+                messages=self._wrap_up_messages(messages),
+                tools=None,
+                temperature=self.agent.temperature,
+                max_tokens=self.agent.max_tokens,
+            ):
+                if event.type == "text":
+                    final_text += event.text
+                    yield event
+                elif event.type == "done" and event.response is not None:
+                    usage = _merge_usage(usage, event.response.usage)
+                    final_text = event.response.text or final_text
+
         yield RuntimeResult(
             text=final_text,
             tool_calls=invocations,
@@ -404,6 +473,7 @@ class AgentRuntime:
             provider=self.agent.provider,
             model=self.agent.model,
             iterations=iterations,
+            budget_exhausted=budget_exhausted,
         )
 
     async def _apply_tool_calls(
