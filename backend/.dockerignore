@@ -1,0 +1,18 @@
+# Virtualenvs are host-specific and enormous; the image installs its own.
+.venv/
+.venv-garak/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets and local state must never reach an image layer. The SQLite file in
+# particular holds API keys inside user-defined HTTP tool URLs.
+.env
+*.db
+garak_runs/
+
+tests/
+pytest.ini
+requirements-garak.txt
+.DS_Store

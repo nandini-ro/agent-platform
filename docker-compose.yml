@@ -1,0 +1,80 @@
+# Single-VM deployment. Three containers on one private network, with only
+# Caddy published to the host.
+#
+#   docker compose --env-file .env up -d --build
+#
+# The backend is deliberately not published. Everything reaches it through the
+# frontend's /api proxy, which is what keeps the admin key server-side: see
+# frontend/app/api/[...path]/route.ts.
+
+name: chatbot
+
+# A small VM fills its disk with container logs surprisingly fast.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    logging: *logging
+    # Supplies GROQ_API_KEY, AGENT_API_KEY and the limits. See .env.example.
+    env_file: .env
+    environment:
+      # Fails the stack fast if it is missing, rather than starting an API
+      # whose writes are open to anyone who finds it.
+      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env - see .env.example}
+      # The volume below, not the image layer.
+      DATABASE_URL: sqlite:////data/chatbot.db
+      # Every browser request arrives same-origin via the frontend proxy, so
+      # there is no cross-origin call left for CORS to authorise.
+      CORS_ORIGINS: ""
+      SELF_BASE_URL: http://backend:8000
+    volumes:
+      - backend-data:/data
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+      # No key here on purpose. The proxy forwards the browser's X-API-Key and
+      # adds nothing: a key held by this container would authorise anonymous
+      # visitors, since anyone who loads the page reaches the proxy.
+    expose:
+      - "3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "80:80"
+      # Already mapped so that switching the Caddyfile to a hostname is a
+      # one-line change rather than a change plus a container recreate.
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+
+volumes:
+  # The SQLite database. This is the only state worth backing up - and it
+  # holds secrets, because user-defined HTTP tools store their API keys inside
+  # the URL template.
+  backend-data:
+  # Issued certificates and their private keys; losing this means re-issuing.
+  caddy-data:
+  caddy-config:

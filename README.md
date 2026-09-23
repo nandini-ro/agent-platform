@@ -137,10 +137,10 @@ stored in the database. See [`backend/.env.example`](backend/.env.example).
 | `HTTP_TOOL_ALLOWED_HOSTS` | *(empty)* | Comma-separated allowlist; empty means any public host. Applies to custom tools **and remote MCP URLs** |
 | `HTTP_TOOL_ALLOW_PRIVATE_NETWORKS` | `false` | Let those reach private/loopback addresses. Dangerous; needed only to use the bundled HTTP demo MCP server |
 | `DEFAULT_PROVIDER` | `mock` | Provider preselected in the agent form |
-| `AGENT_API_KEY` | *(unset)* | Shared secret for `POST /api/agents/{id}/chat`. Unset leaves it open |
+| `AGENT_API_KEY` | *(unset)* | Shared secret for every state-changing `/api` request (`POST`/`PUT`/`PATCH`/`DELETE`), sent as `X-API-Key`. Unset leaves writes open, which is the local default. See [deployment](docs/deployment.md) |
 | `TOOL_TIMEOUT_SECONDS` | `10` | Per local tool call |
 | `MCP_TIMEOUT_SECONDS` | `30` | Per MCP connection and call |
-| `MAX_TOOL_ITERATIONS` | `5` | Caps the agentic loop |
+| `MAX_TOOL_ITERATIONS` | `12` | Caps the agentic loop. A prompt needing N tools needs N+1: one turn per tool, one to answer |
 | `MAX_HISTORY_MESSAGES` | `40` | Turns replayed per request |
 | `GARAK_PYTHON` | `.venv-garak/bin/python` | Interpreter used to run Garak |
 | `GARAK_REPORT_DIR` | `garak_runs` | Where scan reports are written |

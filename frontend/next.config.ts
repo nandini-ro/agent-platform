@@ -3,6 +3,10 @@ import path from "node:path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Emit a self-contained server bundle (.next/standalone) so the production
+  // image can drop node_modules and the source tree entirely.
+  output: "standalone",
+
   // Pin the workspace root. A stray package-lock.json in the home directory
   // otherwise makes Turbopack infer a root above this project.
   turbopack: { root: path.resolve(__dirname) },

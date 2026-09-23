@@ -23,6 +23,8 @@ import type {
   ToolDefinition,
 } from "@/types";
 
+import { adminKeyHeader } from "@/services/adminKey";
+
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -41,7 +43,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers: {
+        "Content-Type": "application/json",
+        ...adminKeyHeader(),
+        ...init?.headers,
+      },
     });
   } catch {
     throw new ApiError(
@@ -50,6 +56,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
 
+  if (response.status === 401) {
+    // The backend's own wording is accurate but gives no way forward.
+    throw new ApiError(
+      "This change needs the admin key. Add it with the lock in the sidebar.",
+      401,
+    );
+  }
   if (!response.ok) {
     throw new ApiError(await describeError(response), response.status);
   }
@@ -234,7 +247,7 @@ export async function streamMessage(
       `${BASE_URL}/api/conversations/${conversationId}/messages`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...adminKeyHeader() },
         body: JSON.stringify({ content }),
         signal,
       },

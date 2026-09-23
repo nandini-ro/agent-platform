@@ -1,0 +1,30 @@
+# Bare IP for now. Let's Encrypt will not issue a certificate for an address,
+# so this serves plain HTTP.
+#
+# To add TLS later: point a DNS A record at this VM, replace `:80` below with
+# the hostname (e.g. `chat.example.com {`), and `docker compose restart caddy`.
+# Caddy obtains and renews the certificate itself; nothing else changes,
+# because no hostname is baked into either image.
+:80 {
+	# Everything goes to the Next.js server, including /api - it proxies those
+	# on to the backend after adding the admin key. One upstream, so the
+	# browser only ever talks to one origin.
+	@api path /api/*
+	reverse_proxy @api frontend:3000 {
+		# Server-sent events have to reach the browser as the agent produces
+		# them. Caddy streams by default; saying so explicitly means a later
+		# edit cannot quietly reintroduce buffering and stall the chat UI.
+		flush_interval -1
+	}
+
+	# Compression is worth it for the app shell and static assets, and is kept
+	# away from /api for the same streaming reason.
+	@static not path /api/*
+	encode @static zstd gzip
+	reverse_proxy @static frontend:3000
+
+	log {
+		output stdout
+		format console
+	}
+}

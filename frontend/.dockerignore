@@ -1,0 +1,15 @@
+# Installed fresh in the deps stage; copying the host's copy would be slow and
+# could carry darwin-specific binaries into a linux image.
+node_modules/
+.next/
+out/
+
+# Local overrides. The image sets NEXT_PUBLIC_API_BASE_URL itself, and a
+# stray .env.local would silently win over it.
+.env
+.env.local
+
+.DS_Store
+npm-debug.log*
+tsconfig.tsbuildinfo
+next-env.d.ts
