@@ -28,6 +28,7 @@ from app.db.session import SessionLocal
 from app.models.agent import Agent
 from app.models.http_tool import HTTPTool
 from app.models.mcp_server import MCPServer
+from app.services.credentials import resolve_api_key
 from app.services.mcp_manager import DiscoveredTool, MCPError, MCPManager
 from app.services.mcp_manager import manager as default_mcp_manager
 from app.services.llm.base import (
@@ -109,13 +110,22 @@ class AgentRuntime:
     ) -> None:
         self.agent = agent
         self.settings = get_settings()
-        self.provider = get_provider(agent.provider)
+        # The agent's own credential, decrypted server-side and handed only to
+        # the provider client. It never enters prompts, messages or tool calls.
+        # Raises ProviderNotConfigured when it cannot be decrypted.
+        self._api_key = resolve_api_key(agent)
+        self.provider = get_provider(agent.provider, api_key=self._api_key)
         self.tools = tool_registry or default_tool_registry
         self.mcp = mcp_manager or default_mcp_manager
         # qualified tool name -> (server, discovered tool), filled by _load_tools
         self._mcp_index: dict[str, tuple[MCPServer, DiscoveredTool]] = {}
         # name -> user-defined HTTP tool, also filled by _load_tools
         self._http_index: dict[str, Any] = {}
+
+    def redact(self, text: str) -> str:
+        """Scrub this agent's API key from text bound for a client, in case a
+        provider SDK echoes it in an exception."""
+        return text.replace(self._api_key, "[redacted]") if self._api_key else text
 
     # -- configuration loading -------------------------------------------
 

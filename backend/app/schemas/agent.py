@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 
 class AgentBase(BaseModel):
@@ -18,7 +18,9 @@ class AgentBase(BaseModel):
 
 
 class AgentCreate(AgentBase):
-    pass
+    # Write-only. SecretStr keeps it out of reprs and logs; it is encrypted
+    # before storage and never returned.
+    api_key: SecretStr | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -33,18 +35,21 @@ class AgentUpdate(BaseModel):
     max_tokens: int | None = Field(default=None, ge=1, le=64000)
     tools: list[str] | None = None
     mcp_server_ids: list[str] | None = None
+    # Blank or absent keeps the stored key; a value replaces it.
+    api_key: SecretStr | None = None
 
 
 class AgentRead(AgentBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    has_api_key: bool
     created_at: datetime
     updated_at: datetime
 
 
 class ProviderInfo(BaseModel):
     name: str
-    available: bool
+    requires_api_key: bool
     supports_tools: bool
     models: list[str]

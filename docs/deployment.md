@@ -48,7 +48,8 @@ cd chatbot
 
 cp .env.example .env
 openssl rand -hex 32          # paste into AGENT_API_KEY
-$EDITOR .env                  # AGENT_API_KEY and GROQ_API_KEY at minimum
+openssl rand -base64 32       # paste into CREDENTIAL_ENCRYPTION_KEY
+$EDITOR .env                  # both are required; provider keys go in the UI
 
 docker compose up -d --build
 ```

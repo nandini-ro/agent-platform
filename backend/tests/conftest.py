@@ -29,6 +29,10 @@ os.environ["DEFAULT_PROVIDER"] = "mock"
 for _key in ("OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "AGENT_API_KEY"):
     os.environ[_key] = ""
 
+# A throwaway master key, so per-agent provider keys can be encrypted in tests
+# regardless of what the developer's .env holds.
+os.environ["CREDENTIAL_ENCRYPTION_KEY"] = "dGVzdC1vbmx5LW1hc3Rlci1rZXktMzItYnl0ZXMhISE="
+
 # User-defined HTTP tools must not be able to reach the host's own network
 # during a test run.
 os.environ["HTTP_TOOL_ALLOW_PRIVATE_NETWORKS"] = "false"

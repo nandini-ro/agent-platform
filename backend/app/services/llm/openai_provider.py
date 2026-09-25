@@ -54,7 +54,7 @@ def _accepts_sampling(model: str) -> bool:
 class OpenAIProvider(BaseLLMProvider):
     """Chat Completions provider.
 
-    Subclass it for an OpenAI-compatible vendor by overriding the three class
+    Subclass it for an OpenAI-compatible vendor by overriding the two class
     attributes below; everything else - message translation, tool definitions,
     streaming reassembly - is shared, so there is one code path to maintain and
     one to test.
@@ -63,8 +63,6 @@ class OpenAIProvider(BaseLLMProvider):
     name = "openai"
     supports_tools = True
 
-    #: Environment variable named in the "not configured" error.
-    env_var = "OPENAI_API_KEY"
     #: None means the SDK's own default endpoint.
     base_url: str | None = None
 
@@ -78,8 +76,8 @@ class OpenAIProvider(BaseLLMProvider):
     def _get_client(self):
         if not self.is_available():
             raise ProviderNotConfigured(
-                f"{self.env_var} is not set. Add it to backend/.env, or set the "
-                "agent's provider to 'mock' to run without credentials."
+                f"No API key is configured for provider '{self.name}'. Add one "
+                "in the agent's configuration."
             )
         if self._client is None:
             from openai import AsyncOpenAI

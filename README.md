@@ -123,15 +123,14 @@ python3.12 -m venv .venv-garak
 
 ## Environment variables
 
-All configuration comes from the environment. Nothing sensitive is hardcoded or
-stored in the database. See [`backend/.env.example`](backend/.env.example).
+All configuration comes from the environment. Nothing sensitive is hardcoded.
+Provider API keys are entered per agent in the UI and stored encrypted under
+`CREDENTIAL_ENCRYPTION_KEY`. See [`backend/.env.example`](backend/.env.example).
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./chatbot.db` | Use `postgresql+psycopg://...` for PostgreSQL |
-| `OPENAI_API_KEY` | *(unset)* | Enables the `openai` provider. Unset is handled gracefully |
-| `GEMINI_API_KEY` | *(unset)* | Enables the `gemini` provider |
-| `GROQ_API_KEY` | *(unset)* | Enables the `groq` provider |
+| `CREDENTIAL_ENCRYPTION_KEY` | *(unset)* | Master key (32 bytes, base64: `openssl rand -base64 32`) that encrypts each agent's provider API key at rest. Required to save an agent on `openai`, `gemini` or `groq`; changing it invalidates every stored key |
 | `HTTP_TOOL_TIMEOUT_SECONDS` | `10` | Ceiling for a custom HTTP tool call |
 | `HTTP_TOOL_MAX_RESPONSE_CHARS` | `8000` | Response truncation |
 | `HTTP_TOOL_ALLOWED_HOSTS` | *(empty)* | Comma-separated allowlist; empty means any public host. Applies to custom tools **and remote MCP URLs** |
@@ -172,8 +171,11 @@ A real deployment should add Alembic instead of `create_all()`.
    - **Agent name** — required.
    - **Description** — free text.
    - **System instructions** — what actually drives behaviour.
-   - **Model provider** — `mock` (offline), `openai` or `gemini`. A provider
-     with no API key is labelled as such and the form warns you.
+   - **Model provider** — `mock` (offline), `openai`, `gemini` or `groq`.
+   - **API key** — required for every provider except `mock`. Encrypted on the
+     server and never shown again; when editing, leave it blank to keep the
+     saved key. A key belongs to the provider it was entered for, so switching
+     provider asks for a new one.
    - **Model** — suggestions per provider; any string is accepted.
    - **Temperature / Max tokens**.
    - **Tools** — tick the local tools this agent may execute.
@@ -268,13 +270,12 @@ plain text, a full tool round trip, and streaming with tools:
 ### OpenAI-compatible vendors need no adapter
 
 Groq (and anything else serving Chat Completions — Together, Fireworks, vLLM,
-Ollama's compat endpoint) is a subclass of `OpenAIProvider` overriding three
+Ollama's compat endpoint) is a subclass of `OpenAIProvider` overriding two
 class attributes:
 
 ```python
 class GroqProvider(OpenAIProvider):
     name = "groq"
-    env_var = "GROQ_API_KEY"
     base_url = "https://api.groq.com/openai/v1"
 ```
 

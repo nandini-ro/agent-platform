@@ -51,5 +51,6 @@ def test_unknown_provider_rejected(client, agent_payload):
 
 def test_providers_endpoint_lists_mock(client):
     providers = {p["name"]: p for p in client.get("/api/agents/providers").json()}
-    assert providers["mock"]["available"] is True
+    assert providers["mock"]["requires_api_key"] is False
+    assert providers["groq"]["requires_api_key"] is True
     assert {"openai", "gemini", "groq"} <= set(providers)

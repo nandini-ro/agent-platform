@@ -33,6 +33,20 @@ const EMPTY: AgentDraft = {
   mcp_server_ids: [],
 };
 
+function toDraft(agent: Agent): AgentDraft {
+  return {
+    name: agent.name,
+    description: agent.description,
+    system_prompt: agent.system_prompt,
+    provider: agent.provider,
+    model: agent.model,
+    temperature: agent.temperature,
+    max_tokens: agent.max_tokens,
+    tools: agent.tools,
+    mcp_server_ids: agent.mcp_server_ids,
+  };
+}
+
 export function AgentForm({
   agent,
   providers,
@@ -46,10 +60,20 @@ export function AgentForm({
   // The form is mounted fresh each time it opens (and keyed by agent id), so
   // the initial value is all the synchronisation it needs.
   const [draft, setDraft] = useState<AgentDraft>(() =>
-    agent ? { ...agent } : EMPTY,
+    agent ? toDraft(agent) : EMPTY,
   );
+  // The provider key lives only in this component's state until it is
+  // submitted; the backend never sends a stored one back.
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
 
   const provider = providers.find((p) => p.name === draft.provider);
+  const needsKey = provider?.requires_api_key ?? false;
+  // A stored key only counts for the provider it was saved with.
+  const keySaved = Boolean(
+    agent?.has_api_key && agent.provider === draft.provider,
+  );
 
   function set<K extends keyof AgentDraft>(key: K, value: AgentDraft[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -84,7 +108,16 @@ export function AgentForm({
           className="space-y-5 px-6 py-5"
           onSubmit={(e) => {
             e.preventDefault();
-            onSave(draft);
+            const key = apiKey.trim();
+            if (needsKey && !key && !keySaved) {
+              setKeyError(
+                `An API key is required before this agent can use ${draft.provider}.`,
+              );
+              return;
+            }
+            setKeyError(null);
+            // Blank means "keep the stored key", so it is not sent at all.
+            onSave(needsKey && key ? { ...draft, api_key: key } : draft);
           }}
         >
           <Field label="Agent name" required>
@@ -133,7 +166,6 @@ export function AgentForm({
                 {providers.map((p) => (
                   <option key={p.name} value={p.name}>
                     {p.name}
-                    {p.available ? "" : " (no API key)"}
                   </option>
                 ))}
               </select>
@@ -154,12 +186,48 @@ export function AgentForm({
             </Field>
           </div>
 
-          {provider && !provider.available && (
-            <Notice>
-              <strong>{provider.name}</strong> has no API key configured. Set it
-              in <code>backend/.env</code>, or use the <code>mock</code>{" "}
-              provider to run offline.
-            </Notice>
+          {needsKey && (
+            <Field
+              label="API key"
+              required={!keySaved}
+              hint="Encrypted on the server and never shown again."
+            >
+              <div className="flex gap-2">
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    setKeyError(null);
+                  }}
+                  placeholder={
+                    keySaved
+                      ? "Leave blank to keep the saved key"
+                      : `Paste your ${draft.provider} API key`
+                  }
+                  autoComplete="new-password"
+                  spellCheck={false}
+                  className={`${inputClass} font-mono`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((s) => !s)}
+                  aria-pressed={showKey}
+                  className="shrink-0 rounded-lg border border-slate-300 px-3 text-xs text-slate-600 hover:bg-slate-50"
+                >
+                  {showKey ? "Hide" : "Show"}
+                </button>
+              </div>
+              <span
+                className={`mt-1 block text-xs ${keySaved ? "text-emerald-700" : "text-amber-700"}`}
+              >
+                {keySaved
+                  ? "✓ API key configured. Enter a new key to replace it."
+                  : agent?.has_api_key
+                    ? `The saved key belongs to ${agent.provider}. Enter a ${draft.provider} API key.`
+                    : "No API key configured."}
+              </span>
+            </Field>
           )}
 
           <div className="grid grid-cols-2 gap-4">
@@ -233,9 +301,9 @@ export function AgentForm({
             </div>
           </Field>
 
-          {error && (
+          {(keyError ?? error) && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
-              {error}
+              {keyError ?? error}
             </div>
           )}
 
@@ -324,13 +392,5 @@ function Checkbox({
         )}
       </span>
     </label>
-  );
-}
-
-function Notice({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-      {children}
-    </div>
   );
 }

@@ -11,15 +11,23 @@ export interface Agent {
   max_tokens: number;
   tools: string[];
   mcp_server_ids: string[];
+  /** A provider API key is stored for the current provider. The key itself is never returned. */
+  has_api_key: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export type AgentDraft = Omit<Agent, "id" | "created_at" | "updated_at">;
+export type AgentDraft = Omit<
+  Agent,
+  "id" | "created_at" | "updated_at" | "has_api_key"
+> & {
+  /** Write-only. Omitted or blank on update keeps the stored key. */
+  api_key?: string;
+};
 
 export interface ProviderInfo {
   name: string;
-  available: boolean;
+  requires_api_key: boolean;
   supports_tools: boolean;
   models: string[];
 }

@@ -44,9 +44,9 @@ NO_ARG_TOOL = ToolSpec(
 
 # Keyed provider classes that talk to a real vendor API.
 REMOTE_PROVIDERS = {
-    "openai": (OpenAIProvider, "OPENAI_API_KEY"),
-    "gemini": (GeminiProvider, "GEMINI_API_KEY"),
-    "groq": (GroqProvider, "GROQ_API_KEY"),
+    "openai": OpenAIProvider,
+    "gemini": GeminiProvider,
+    "groq": GroqProvider,
 }
 
 
@@ -74,22 +74,23 @@ def test_catalogue_lists_every_provider_with_model_suggestions():
     assert set(catalogue) == {"openai", "gemini", "groq", "mock"}
     for name, entry in catalogue.items():
         assert entry["models"], f"{name} has no suggested models"
-        assert isinstance(entry["available"], bool)
+        assert entry["requires_api_key"] is (name != "mock")
 
 
 @pytest.mark.parametrize("name", sorted(REMOTE_PROVIDERS))
 def test_provider_without_a_key_is_unavailable(name):
-    cls, _ = REMOTE_PROVIDERS[name]
-    assert cls(api_key=None).is_available() is False
+    assert REMOTE_PROVIDERS[name](api_key=None).is_available() is False
 
 
 @pytest.mark.parametrize("name", sorted(REMOTE_PROVIDERS))
 @pytest.mark.asyncio
 async def test_provider_without_a_key_raises_a_named_error(name):
-    """The message must name the env var, since that is the fix."""
-    cls, env_var = REMOTE_PROVIDERS[name]
-    provider = cls(api_key=None)
-    with pytest.raises(ProviderNotConfigured, match=env_var):
+    """The message must name the provider and point at the agent's config."""
+    provider = REMOTE_PROVIDERS[name](api_key=None)
+    with pytest.raises(
+        ProviderNotConfigured,
+        match=f"No API key is configured for provider '{name}'",
+    ):
         await provider.generate(
             model="whatever", system="", messages=[LLMMessage("user", "hi")]
         )
@@ -97,8 +98,7 @@ async def test_provider_without_a_key_raises_a_named_error(name):
 
 @pytest.mark.parametrize("name", sorted(REMOTE_PROVIDERS))
 def test_provider_with_a_key_is_available(name):
-    cls, _ = REMOTE_PROVIDERS[name]
-    assert cls(api_key="test-key").is_available() is True
+    assert REMOTE_PROVIDERS[name](api_key="test-key").is_available() is True
 
 
 def test_only_mock_is_available_without_credentials():
@@ -107,10 +107,20 @@ def test_only_mock_is_available_without_credentials():
 
 
 @pytest.mark.parametrize("name", sorted(REMOTE_PROVIDERS))
-def test_the_suite_never_sees_real_credentials(name):
-    """conftest clears provider keys, so a developer with real ones in .env
-    cannot have the suite build live clients and spend money."""
+def test_providers_hold_no_credential_unless_given_one(name):
+    """Keys come from the agent, never the environment - so a developer with
+    old provider keys in .env cannot have the suite build live clients."""
     assert get_provider(name).is_available() is False
+
+
+@pytest.mark.parametrize("name", sorted(REMOTE_PROVIDERS))
+def test_registry_builds_a_separate_instance_per_credential(name):
+    """A shared instance would let one agent's key serve another's calls."""
+    first = get_provider(name, api_key="key-one")
+    second = get_provider(name, api_key="key-two")
+    assert first is not second
+    assert first._api_key == "key-one"
+    assert second._api_key == "key-two"
 
 
 # ---------------------------------------------------------------------------
@@ -657,9 +667,9 @@ def test_groq_points_at_its_own_endpoint():
     assert OpenAIProvider.base_url is None
 
 
-def test_groq_names_its_own_env_var_when_unconfigured():
-    """Inherited plumbing must not tell the user to set OPENAI_API_KEY."""
-    with pytest.raises(ProviderNotConfigured, match="GROQ_API_KEY"):
+def test_groq_names_itself_when_unconfigured():
+    """Inherited plumbing must not report the error as OpenAI's."""
+    with pytest.raises(ProviderNotConfigured, match="provider 'groq'"):
         GroqProvider(api_key=None)._get_client()
 
 

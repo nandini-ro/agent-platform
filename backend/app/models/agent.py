@@ -29,5 +29,17 @@ class Agent(Base):
     tools: Mapped[list] = mapped_column(JSON, default=list)
     mcp_server_ids: Mapped[list] = mapped_column(JSON, default=list)
 
+    # The provider API key, encrypted (app/services/credentials.py) and bound
+    # to the provider it was entered for. Write-only: the API never returns
+    # either column, only `has_api_key`.
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    api_key_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     created_at: Mapped[datetime] = created_column()
     updated_at: Mapped[datetime] = updated_column()
+
+    @property
+    def has_api_key(self) -> bool:
+        """A key is stored for the *current* provider. One saved for a provider
+        the agent has since switched away from does not count."""
+        return bool(self.api_key_encrypted) and self.api_key_provider == self.provider

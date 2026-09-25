@@ -1,7 +1,9 @@
 """Application settings.
 
 Every secret and deployment-specific value is read from the environment (or a
-local .env file). Nothing sensitive is ever hardcoded or persisted to the DB.
+local .env file). Nothing sensitive is hardcoded. The one secret the database
+holds - each agent's provider API key - is stored encrypted under
+CREDENTIAL_ENCRYPTION_KEY; see app/services/credentials.py.
 """
 
 from functools import lru_cache
@@ -20,11 +22,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./chatbot.db"
 
     # --- LLM providers -----------------------------------------------------
-    # Absent keys are tolerated: the provider reports itself unavailable and the
-    # API returns a clear 4xx rather than crashing at import time.
-    openai_api_key: str | None = None
-    gemini_api_key: str | None = None
-    groq_api_key: str | None = None
+    # Provider API keys are entered per agent in the UI, not configured here.
+    # This master key encrypts them at rest: 32 random bytes, base64-encoded
+    # (openssl rand -base64 32). Losing or changing it makes every stored
+    # provider key unreadable, and each agent's key must then be re-entered.
+    credential_encryption_key: str | None = None
     default_provider: str = "mock"
     default_model: str = "gpt-5.6-sol"
 

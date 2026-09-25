@@ -55,6 +55,11 @@ def _load_history(db: Session, conversation_id: str) -> list[LLMMessage]:
     ]
 
 
+def _safe_detail(runtime: AgentRuntime | None, exc: Exception) -> str:
+    """An exception's text with the agent's API key scrubbed out."""
+    return runtime.redact(str(exc)) if runtime else str(exc)
+
+
 # --------------------------------------------------------------------------
 # Stateless agent endpoint (programmatic + Garak)
 # --------------------------------------------------------------------------
@@ -77,8 +82,9 @@ async def agent_chat(
     Caller-side mistakes (unknown agent, bad API key) still return real error
     codes, because those should fail fast rather than be scored as output.
     """
-    runtime = AgentRuntime(agent)
+    runtime: AgentRuntime | None = None
     try:
+        runtime = AgentRuntime(agent)
         result = await runtime.run(history=[], user_message=payload.message)
     except ProviderNotConfigured as exc:
         logger.warning("agent %s: provider not configured: %s", agent.id, exc)
@@ -92,7 +98,7 @@ async def agent_chat(
         return AgentChatResponse(
             agent_id=agent.id,
             response="[error] The agent failed to produce a response.",
-            metadata={"error": "runtime_failure", "detail": str(exc)},
+            metadata={"error": "runtime_failure", "detail": _safe_detail(runtime, exc)},
         )
 
     return AgentChatResponse(
@@ -142,9 +148,10 @@ async def send_message(
         session = SessionLocal()
         try:
             live_agent = session.get(Agent, agent_id)
-            runtime = AgentRuntime(live_agent)
+            runtime: AgentRuntime | None = None
             final: RuntimeResult | None = None
             try:
+                runtime = AgentRuntime(live_agent)
                 async for item in runtime.stream(history, content):
                     if isinstance(item, ToolInvocation):
                         yield {"event": "tool", "data": json.dumps(item.to_dict())}
@@ -159,7 +166,9 @@ async def send_message(
                 logger.exception("stream failed for conversation %s", conversation_id)
                 yield {
                     "event": "error",
-                    "data": json.dumps({"message": f"Agent failed: {exc}"}),
+                    "data": json.dumps(
+                        {"message": f"Agent failed: {_safe_detail(runtime, exc)}"}
+                    ),
                 }
                 return
 

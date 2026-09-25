@@ -48,8 +48,8 @@ class GeminiProvider(BaseLLMProvider):
     def _get_client(self):
         if not self.is_available():
             raise ProviderNotConfigured(
-                "GEMINI_API_KEY is not set. Add it to backend/.env, or set the "
-                "agent's provider to 'mock' to run without credentials."
+                f"No API key is configured for provider '{self.name}'. Add one "
+                "in the agent's configuration."
             )
         if self._client is None:
             from google import genai

@@ -21,12 +21,15 @@ services:
     build: ./backend
     restart: unless-stopped
     logging: *logging
-    # Supplies GROQ_API_KEY, AGENT_API_KEY and the limits. See .env.example.
+    # Supplies AGENT_API_KEY, CREDENTIAL_ENCRYPTION_KEY and the limits. See
+    # .env.example. Provider API keys are entered per agent in the UI.
     env_file: .env
     environment:
       # Fails the stack fast if it is missing, rather than starting an API
       # whose writes are open to anyone who finds it.
       AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env - see .env.example}
+      # Encrypts each agent's provider API key at rest.
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env - see .env.example}
       # The volume below, not the image layer.
       DATABASE_URL: sqlite:////data/chatbot.db
       # Every browser request arrives same-origin via the frontend proxy, so
@@ -73,7 +76,8 @@ services:
 volumes:
   # The SQLite database. This is the only state worth backing up - and it
   # holds secrets, because user-defined HTTP tools store their API keys inside
-  # the URL template.
+  # the URL template. (Provider API keys are here too, but encrypted under
+  # CREDENTIAL_ENCRYPTION_KEY - back that up separately from this volume.)
   backend-data:
   # Issued certificates and their private keys; losing this means re-issuing.
   caddy-data:

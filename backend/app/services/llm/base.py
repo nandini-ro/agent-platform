@@ -74,6 +74,8 @@ class BaseLLMProvider(ABC):
 
     name: str = "base"
     supports_tools: bool = False
+    #: Keyed providers are constructed with the agent's decrypted API key.
+    requires_api_key: bool = True
 
     @abstractmethod
     def is_available(self) -> bool:

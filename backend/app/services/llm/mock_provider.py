@@ -48,6 +48,7 @@ def _synthesize_args(tool: ToolSpec, user_text: str) -> dict:
 class MockProvider(BaseLLMProvider):
     name = "mock"
     supports_tools = True
+    requires_api_key = False
 
     def is_available(self) -> bool:
         return True

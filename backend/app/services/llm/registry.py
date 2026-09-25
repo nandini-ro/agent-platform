@@ -1,38 +1,44 @@
 """Provider registry - the single lookup point for provider instances.
 
 Adding a provider is one import plus one dict entry; no other module changes.
+Providers carry no credentials of their own - each agent's key is decrypted
+and passed in by AgentRuntime (see app/services/credentials.py).
 The agent form reads this catalogue from /api/agents/providers, so a new
 provider appears in the UI without any frontend change.
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
-
-from app.config.settings import get_settings
 from app.services.llm.base import BaseLLMProvider
 from app.services.llm.gemini_provider import GeminiProvider
 from app.services.llm.groq_provider import GroqProvider
 from app.services.llm.mock_provider import MockProvider
 from app.services.llm.openai_provider import OpenAIProvider
 
-
-@lru_cache
-def _providers() -> dict[str, BaseLLMProvider]:
-    settings = get_settings()
-    return {
-        "openai": OpenAIProvider(api_key=settings.openai_api_key),
-        "gemini": GeminiProvider(api_key=settings.gemini_api_key),
-        "groq": GroqProvider(api_key=settings.groq_api_key),
-        "mock": MockProvider(),
-    }
+_PROVIDERS: dict[str, type[BaseLLMProvider]] = {
+    "openai": OpenAIProvider,
+    "gemini": GeminiProvider,
+    "groq": GroqProvider,
+    "mock": MockProvider,
+}
 
 
-def get_provider(name: str) -> BaseLLMProvider:
-    providers = _providers()
-    if name not in providers:
-        raise KeyError(f"Unknown provider '{name}'. Known: {sorted(providers)}")
-    return providers[name]
+def provider_class(name: str) -> type[BaseLLMProvider]:
+    if name not in _PROVIDERS:
+        raise KeyError(f"Unknown provider '{name}'. Known: {sorted(_PROVIDERS)}")
+    return _PROVIDERS[name]
+
+
+def get_provider(name: str, api_key: str | None = None) -> BaseLLMProvider:
+    """A new provider instance carrying the caller's credential.
+
+    Built per call, never shared: credentials belong to agents, so a cached
+    instance would let one agent's key serve another agent's requests.
+    """
+    cls = provider_class(name)
+    if not cls.requires_api_key:
+        return cls()
+    return cls(api_key=api_key)
 
 
 def list_providers() -> list[dict]:
@@ -40,11 +46,11 @@ def list_providers() -> list[dict]:
     return [
         {
             "name": name,
-            "available": p.is_available(),
-            "supports_tools": p.supports_tools,
+            "requires_api_key": cls.requires_api_key,
+            "supports_tools": cls.supports_tools,
             "models": _MODELS.get(name, []),
         }
-        for name, p in _providers().items()
+        for name, cls in _PROVIDERS.items()
     ]
 
 
