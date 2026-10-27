@@ -1,12 +1,15 @@
 "use client";
 
 import { Markdown } from "@/components/Markdown";
+import { FileIcon, formatSize } from "@/components/MessageInput";
 import { ToolCallBadge } from "@/components/ToolCall";
-import type { ToolCall } from "@/types";
+import { attachmentUrl } from "@/services/api";
+import type { Attachment, ToolCall } from "@/types";
 
 interface MessageProps {
   role: "user" | "assistant";
   content: string;
+  attachments?: Attachment[];
   toolCalls?: ToolCall[];
   meta?: { provider?: string; model?: string; iterations?: number };
   streaming?: boolean;
@@ -15,6 +18,7 @@ interface MessageProps {
 export function MessageBubble({
   role,
   content,
+  attachments = [],
   toolCalls = [],
   meta,
   streaming = false,
@@ -35,6 +39,44 @@ export function MessageBubble({
             {toolCalls.map((call, i) => (
               <ToolCallBadge key={`${call.name}-${i}`} call={call} />
             ))}
+          </div>
+        )}
+
+        {attachments.length > 0 && (
+          <div className={`flex flex-wrap gap-2 ${isUser ? "justify-end" : ""}`}>
+            {attachments.map((a) =>
+              a.kind === "image" ? (
+                <a
+                  key={a.id}
+                  href={attachmentUrl(a.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={a.filename}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- served by the API, not a static asset */}
+                  <img
+                    src={attachmentUrl(a.id)}
+                    alt={a.filename}
+                    className="max-h-48 max-w-xs rounded-xl border border-slate-200 object-cover"
+                  />
+                </a>
+              ) : (
+                <div
+                  key={a.id}
+                  title={a.filename}
+                  className="flex max-w-[16rem] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+                >
+                  <FileIcon />
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{a.filename}</span>
+                    <span className="block text-2xs text-slate-500">
+                      {a.content_type === "application/pdf" ? "PDF" : "Text"} ·{" "}
+                      {formatSize(a.size)}
+                    </span>
+                  </span>
+                </div>
+              ),
+            )}
           </div>
         )}
 

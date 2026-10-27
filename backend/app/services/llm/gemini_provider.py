@@ -15,6 +15,8 @@ Gemini differs from the other two providers in three ways that shape this file:
 
 from __future__ import annotations
 
+import base64
+
 import logging
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
@@ -80,6 +82,7 @@ class GeminiProvider(BaseLLMProvider):
 
             function_parts: list[Any] = []
             text_parts: list[str] = []
+            image_parts: list[Any] = []
             for b in m.content:
                 if b.get("type") == "tool_result":
                     function_parts.append(
@@ -95,17 +98,21 @@ class GeminiProvider(BaseLLMProvider):
                             ),
                         )
                     )
+                elif b.get("type") == "image":
+                    image_parts.append(
+                        types.Part.from_bytes(
+                            data=base64.b64decode(b["data"]), mime_type=b["media_type"]
+                        )
+                    )
                 else:
                     text_parts.append(b.get("text", ""))
 
             if function_parts:
                 contents.append(types.Content(role="tool", parts=function_parts))
-            if text_parts:
-                contents.append(
-                    types.Content(
-                        role=role, parts=[types.Part.from_text(text="".join(text_parts))]
-                    )
-                )
+            if text_parts or image_parts:
+                text = "".join(text_parts)
+                parts = [types.Part.from_text(text=text)] if text else []
+                contents.append(types.Content(role=role, parts=parts + image_parts))
 
         return contents
 

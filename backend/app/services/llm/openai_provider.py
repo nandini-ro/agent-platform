@@ -112,6 +112,7 @@ class OpenAIProvider(BaseLLMProvider):
                 continue
 
             text_parts: list[str] = []
+            image_parts: list[dict] = []
             for b in m.content:
                 if b.get("type") == "tool_result":
                     out.append(
@@ -121,9 +122,24 @@ class OpenAIProvider(BaseLLMProvider):
                             "content": str(b.get("content", "")),
                         }
                     )
+                elif b.get("type") == "image":
+                    image_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{b['media_type']};base64,{b['data']}"
+                            },
+                        }
+                    )
                 else:
                     text_parts.append(b.get("text", ""))
-            if text_parts:
+            if image_parts:
+                # Content parts only when there is an image: a plain string is
+                # what every compatible endpoint accepts, vision or not.
+                text = "".join(text_parts)
+                parts = [{"type": "text", "text": text}] if text else []
+                out.append({"role": m.role, "content": parts + image_parts})
+            elif text_parts:
                 out.append({"role": m.role, "content": "".join(text_parts)})
 
         return out

@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, chat, conversations, mcp, public, security, tools
+from app.api import agents, attachments, chat, conversations, mcp, public, security, tools
 from app.config.settings import get_settings
 from app.db.session import init_db
 
@@ -83,6 +83,7 @@ async def require_admin_key(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(agents.router)
+app.include_router(attachments.router)
 app.include_router(conversations.router)
 app.include_router(chat.router)
 app.include_router(tools.router)

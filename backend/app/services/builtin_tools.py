@@ -343,7 +343,7 @@ class ReadPdfTool(BaseTool):
     async def execute(self, arguments: dict[str, Any]) -> str:
         data = await self._download(arguments["url"].strip())
         # pypdf is pure Python and CPU-bound; keep it off the event loop.
-        return await asyncio.to_thread(_pdf_text, data, arguments.get("max_pages", 10))
+        return await asyncio.to_thread(pdf_text, data, arguments.get("max_pages", 10))
 
     async def _download(self, url: str) -> bytes:
         # Imported here: http_tool imports the tool registry, which imports
@@ -386,7 +386,7 @@ def _too_large() -> str:
     return f"The PDF is larger than {_MAX_PDF_BYTES // (1024 * 1024)} MB."
 
 
-def _pdf_text(data: bytes, max_pages: int) -> str:
+def pdf_text(data: bytes, max_pages: int) -> str:
     from pypdf import PdfReader
     from pypdf.errors import PdfReadError
 

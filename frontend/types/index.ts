@@ -106,6 +106,15 @@ export interface HTTPToolTestResult {
   duration_ms: number;
 }
 
+/** A file sent with a chat message. Images are shown to the model; documents are read as text. */
+export interface Attachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  kind: "image" | "document";
+}
+
 export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
@@ -130,6 +139,8 @@ export interface Message {
   content: string;
   meta: {
     tool_calls?: ToolCall[];
+    /** Files sent with a user message. */
+    attachments?: Attachment[];
     provider?: string;
     model?: string;
     usage?: Record<string, number>;

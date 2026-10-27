@@ -203,6 +203,24 @@ The seed data makes this immediate. Ask all three "What is 14 * 3?":
 
 Same model, same question, different rows in the database.
 
+### Attach images and files
+
+The paperclip next to the message box attaches up to 5 files to a message;
+pasting a screenshot or dropping files onto the box works too.
+
+- **Documents** - PDF, TXT, MD, CSV, JSON and other text files, up to 10 MB.
+  The text is extracted on the server (PDFs up to 50 pages) and sent with the
+  message, so this works with every model.
+- **Images** - PNG, JPEG, WebP or GIF, up to 4 MB, at most 3 per message. They
+  are sent to the model as images, so the agent's model must accept images:
+  on Groq that is `qwen/qwen3.8-27b`; `openai/gpt-oss-120b` is text-only.
+
+Files are recognised by their content, not their extension. Images stay in
+the database and are resent on later turns (the 3 newest), so follow-up
+questions about them work; documents keep only their extracted text. Deleting
+a conversation deletes its files, and uploads never sent are removed after a
+day.
+
 ## Model providers
 
 Five providers ship. Each is one file under

@@ -23,6 +23,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.api.deps import get_agent_or_404, require_agent_api_key
 from app.db.session import SessionLocal, get_db
 from app.models.agent import Agent
+from app.models.attachment import Attachment
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.schemas.chat import (
@@ -31,6 +32,7 @@ from app.schemas.chat import (
     SendMessageRequest,
 )
 from app.services.agent_runtime import AgentRuntime, RuntimeResult, ToolInvocation
+from app.services.attachments import MAX_IMAGES_PER_REQUEST, message_blocks, summary
 from app.services.llm.base import LLMMessage, ProviderNotConfigured
 
 logger = logging.getLogger(__name__)
@@ -38,23 +40,86 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
-def _load_history(db: Session, conversation_id: str) -> list[LLMMessage]:
+def _load_history(
+    db: Session, conversation_id: str, image_budget: int = MAX_IMAGES_PER_REQUEST
+) -> list[LLMMessage]:
     """Prior turns as provider-neutral messages.
 
     Only the visible text of each turn is replayed - tool round trips are
     recorded in message metadata for display but not resent, which keeps the
     context small and avoids stale tool-use ids.
+
+    Attached documents are replayed as text. Attached images are replayed as
+    images newest first, up to `image_budget`; older ones become a one-line
+    placeholder, because providers cap the images in a single request.
     """
-    rows = db.scalars(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at)
-    )
-    return [
-        LLMMessage(role=m.role, content=m.content)
-        for m in rows
-        if m.role in ("user", "assistant") and m.content
+    rows = [
+        m
+        for m in db.scalars(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
+        )
+        if m.role in ("user", "assistant")
     ]
+    files: dict[str, list[Attachment]] = {}
+    for a in db.scalars(
+        select(Attachment)
+        .where(Attachment.message_id.in_([m.id for m in rows]))
+        .order_by(Attachment.created_at)
+    ):
+        files.setdefault(a.message_id, []).append(a)
+
+    shown: set[str] = set()
+    for m in reversed(rows):
+        for a in files.get(m.id, []):
+            if a.kind == "image" and len(shown) < image_budget:
+                shown.add(a.id)
+
+    history = []
+    for m in rows:
+        attached = files.get(m.id, [])
+        if not m.content and not attached:
+            continue
+        old = [a for a in attached if a.kind == "image" and a.id not in shown]
+        current = [a for a in attached if a not in old]
+        content = message_blocks(m.content, current)
+        if old:
+            placeholder = message_blocks("", old, include_images=False)
+            content = (
+                f"{content}\n\n{placeholder}".strip()
+                if isinstance(content, str)
+                else [*content, {"type": "text", "text": placeholder}]
+            )
+        history.append(LLMMessage(role=m.role, content=content))
+    return history
+
+
+def _claim(db: Session, ids: list[str]) -> list[Attachment]:
+    """The unclaimed uploads with these ids, in the order given."""
+    if not ids:
+        return []
+    found = {
+        a.id: a
+        for a in db.scalars(
+            select(Attachment).where(
+                Attachment.id.in_(ids), Attachment.message_id.is_(None)
+            )
+        )
+    }
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "An attachment was not found or was already sent. Attach it again.",
+        )
+    images = sum(found[i].kind == "image" for i in ids)
+    if images > MAX_IMAGES_PER_REQUEST:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"At most {MAX_IMAGES_PER_REQUEST} images can be sent in one message.",
+        )
+    return [found[i] for i in dict.fromkeys(ids)]
 
 
 def _safe_detail(runtime: AgentRuntime | None, exc: Exception) -> str:
@@ -135,20 +200,33 @@ async def send_message(
     if agent is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
 
-    history = _load_history(db, conversation_id)
+    attachments = _claim(db, payload.attachment_ids)
+    image_count = sum(a.kind == "image" for a in attachments)
+    history = _load_history(
+        db, conversation_id, image_budget=MAX_IMAGES_PER_REQUEST - image_count
+    )
 
+    text = payload.content.strip()
     user_message = Message(
-        conversation_id=conversation_id, role="user", content=payload.content
+        conversation_id=conversation_id,
+        role="user",
+        content=text,
+        meta={"attachments": [summary(a) for a in attachments]} if attachments else {},
     )
     db.add(user_message)
+    db.flush()
+    for attachment in attachments:
+        attachment.message_id = user_message.id
     # First user message names the conversation.
     if not history:
-        conversation.title = payload.content[:60]
+        conversation.title = (text or attachments[0].filename)[:60]
         db.add(conversation)
     db.commit()
 
     agent_id = agent.id
-    content = payload.content
+    # Built before streaming starts: the request's session closes once the
+    # response begins.
+    content = message_blocks(text, attachments)
 
     async def event_stream():
         # The request-scoped session is closed once the response starts
@@ -172,12 +250,14 @@ async def send_message(
                 return
             except Exception as exc:  # noqa: BLE001
                 logger.exception("stream failed for conversation %s", conversation_id)
-                yield {
-                    "event": "error",
-                    "data": json.dumps(
-                        {"message": f"Agent failed: {_safe_detail(runtime, exc)}"}
-                    ),
-                }
+                message = f"Agent failed: {_safe_detail(runtime, exc)}"
+                if image_count and getattr(exc, "status_code", None) == 400:
+                    message += (
+                        " This agent's model may not accept images - choose a "
+                        "vision model (on Groq: qwen/qwen3.8-27b), or attach "
+                        "documents instead."
+                    )
+                yield {"event": "error", "data": json.dumps({"message": message})}
                 return
 
             if final is None:

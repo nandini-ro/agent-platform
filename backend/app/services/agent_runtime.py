@@ -368,7 +368,7 @@ class AgentRuntime:
     # -- execution --------------------------------------------------------
 
     async def run(
-        self, history: list[LLMMessage], user_message: str
+        self, history: list[LLMMessage], user_message: str | list[dict[str, Any]]
     ) -> RuntimeResult:
         """Non-streaming execution. Used by the programmatic/Garak endpoint."""
         messages = self._trim(list(history)) + [
@@ -434,7 +434,7 @@ class AgentRuntime:
         )
 
     async def stream(
-        self, history: list[LLMMessage], user_message: str
+        self, history: list[LLMMessage], user_message: str | list[dict[str, Any]]
     ) -> AsyncIterator[StreamEvent | ToolInvocation | RuntimeResult]:
         """Streaming execution for the chat UI.
 

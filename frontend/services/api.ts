@@ -7,6 +7,7 @@
 
 import type {
   Agent,
+  Attachment,
   AgentDraft,
   Conversation,
   HTTPTool,
@@ -171,6 +172,39 @@ export const deleteConversation = (id: string) =>
 export const listMessages = (conversationId: string) =>
   request<Message[]>(`/api/conversations/${conversationId}/messages`);
 
+// -- attachments ------------------------------------------------------------
+
+/** Upload one file for the next message. Multipart, so not via request(). */
+export async function uploadAttachment(file: File): Promise<Attachment> {
+  const body = new FormData();
+  body.append("file", file);
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/api/attachments`, {
+      method: "POST",
+      // No Content-Type: the browser sets the multipart boundary itself.
+      headers: adminKeyHeader(),
+      body,
+    });
+  } catch {
+    throw new ApiError(`Cannot reach the backend at ${BASE_URL}.`, 0);
+  }
+  if (response.status === 401) {
+    throw new ApiError(
+      "Uploading needs the admin key. Add it with the lock in the sidebar.",
+      401,
+    );
+  }
+  if (!response.ok) {
+    throw new ApiError(await describeError(response), response.status);
+  }
+  return (await response.json()) as Attachment;
+}
+
+/** Where an image attachment's bytes are served, for display. */
+export const attachmentUrl = (id: string) =>
+  `${BASE_URL}/api/attachments/${id}/content`;
+
 // -- tools / MCP ------------------------------------------------------------
 
 export const listTools = () => request<ToolDefinition[]>("/api/tools");
@@ -263,6 +297,7 @@ export interface StreamHandlers {
 export async function streamMessage(
   conversationId: string,
   content: string,
+  attachmentIds: string[],
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -273,7 +308,7 @@ export async function streamMessage(
       {
         method: "POST",
         headers: { "Content-Type": "application/json", ...adminKeyHeader() },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachment_ids: attachmentIds }),
         signal,
       },
     );

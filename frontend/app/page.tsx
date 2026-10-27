@@ -10,6 +10,7 @@ import { ToolsPanel } from "@/components/ToolsPanel";
 import * as api from "@/services/api";
 import type {
   Agent,
+  Attachment,
   AgentDraft,
   Conversation,
   MCPServer,
@@ -145,7 +146,7 @@ export default function Home() {
 
   // -- chat -----------------------------------------------------------------
 
-  async function send(content: string) {
+  async function send(content: string, attachments: Attachment[] = []) {
     if (!agent) return;
     setChatError(null);
     setSending(true);
@@ -173,13 +174,13 @@ export default function Home() {
       conversation_id: targetId,
       role: "user",
       content,
-      meta: {},
+      meta: attachments.length ? { attachments } : {},
       created_at: new Date().toISOString(),
     };
     appendMessage(targetId, optimisticUser);
     setPending({ content: "", toolCalls: [] });
 
-    await api.streamMessage(targetId, content, {
+    await api.streamMessage(targetId, content, attachments.map((a) => a.id), {
       onToken: (text) =>
         setPending((p) => (p ? { ...p, content: p.content + text } : p)),
       onToolCall: (call) =>
