@@ -43,7 +43,7 @@ export function ChatWindow({
             {agent.name}
           </h1>
           <p className="truncate text-xs text-slate-500">
-            {agent.provider} · {agent.model}
+            {agent.provider} · {agent.model || "endpoint default"}
             {toolCount > 0 && ` · ${toolCount} tool source(s)`}
           </p>
         </div>

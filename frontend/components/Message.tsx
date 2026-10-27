@@ -57,9 +57,9 @@ export function MessageBubble({
           </div>
         )}
 
-        {meta?.model && !streaming && (
+        {meta?.provider && !streaming && (
           <div className="px-1 text-xs text-slate-400">
-            {meta.provider} · {meta.model}
+            {meta.provider} · {meta.model || "endpoint default"}
             {meta.iterations && meta.iterations > 1
               ? ` · ${meta.iterations} turns`
               : ""}

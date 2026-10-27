@@ -33,6 +33,8 @@ export default function Home() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
+  const [publicBaseUrl, setPublicBaseUrl] = useState("");
+  const [securityTesting, setSecurityTesting] = useState(false);
 
   // Selection.
   //
@@ -89,9 +91,15 @@ export default function Home() {
       api.listProviders(),
       api.listTools(),
       api.listMCPServers(),
+      // Optional: without it the URL falls back to the backend's address.
+      api
+        .getMeta()
+        .catch(() => ({ public_base_url: "", security_testing: false })),
     ])
-      .then(([agentList, providerList, toolList, serverList]) => {
+      .then(([agentList, providerList, toolList, serverList, meta]) => {
         if (cancelled) return;
+        setPublicBaseUrl(api.resolvePublicBaseUrl(meta.public_base_url));
+        setSecurityTesting(meta.security_testing);
         setAgents(agentList);
         setProviders(providerList);
         setTools(toolList);
@@ -225,6 +233,19 @@ export default function Home() {
     }
   }
 
+  /** A key was issued or revoked from the open form; refresh the agent. */
+  async function refreshAgents() {
+    try {
+      const agentList = await api.listAgents();
+      setAgents(agentList);
+      setAgent((current) =>
+        current ? (agentList.find((a) => a.id === current.id) ?? current) : current,
+      );
+    } catch {
+      /* the form already shows the change; the list catches up on next load */
+    }
+  }
+
   async function removeAgent(target: Agent) {
     if (
       !window.confirm(
@@ -307,7 +328,9 @@ export default function Home() {
           setSelection({ agentId: c.agent_id, conversationId: c.id })
         }
         onOpenTools={() => setOverlay("tools")}
-        onOpenSecurity={() => setOverlay("security")}
+        onOpenSecurity={
+          securityTesting ? () => setOverlay("security") : undefined
+        }
       />
 
       <main className="min-w-0 flex-1">
@@ -350,6 +373,8 @@ export default function Home() {
           saving={saving}
           error={formError}
           onSave={saveAgent}
+          publicBaseUrl={publicBaseUrl}
+          onAccessChanged={refreshAgents}
           onCancel={() => {
             setOverlay("none");
             setEditing(null);
@@ -375,7 +400,7 @@ export default function Home() {
         />
       )}
 
-      {overlay === "security" && (
+      {securityTesting && overlay === "security" && (
         <SecurityPanel
           agents={agents}
           selectedAgentId={agent?.id ?? null}

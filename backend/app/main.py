@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, chat, conversations, mcp, security, tools
+from app.api import agents, chat, conversations, mcp, public, security, tools
 from app.config.settings import get_settings
 from app.db.session import init_db
 
@@ -87,9 +87,22 @@ app.include_router(conversations.router)
 app.include_router(chat.router)
 app.include_router(tools.router)
 app.include_router(mcp.router)
-app.include_router(security.router)
+if settings.security_testing_enabled:
+    app.include_router(security.router)
+# Outside /api, so the admin key gate above does not apply; each agent's own
+# access key guards it instead. See app/api/public.py.
+app.include_router(public.router)
 
 
 @app.get("/health", tags=["meta"])
 def health() -> dict:
     return {"status": "ok", "app": settings.app_name}
+
+
+@app.get("/api/meta", tags=["meta"])
+def meta() -> dict:
+    """Deployment facts the UI needs - currently just where it is reachable."""
+    return {
+        "public_base_url": settings.public_base_url.rstrip("/"),
+        "security_testing": settings.security_testing_enabled,
+    }

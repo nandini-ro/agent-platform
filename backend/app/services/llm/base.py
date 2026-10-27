@@ -76,6 +76,17 @@ class BaseLLMProvider(ABC):
     supports_tools: bool = False
     #: Keyed providers are constructed with the agent's decrypted API key.
     requires_api_key: bool = True
+    #: A key may be stored even when not required (a custom endpoint's).
+    accepts_api_key: bool = True
+    #: The agent supplies the endpoint, not the adapter.
+    requires_base_url: bool = False
+    #: The agent may leave the model blank and let the endpoint choose.
+    model_optional: bool = False
+
+    #: Set when the provider served a turn with a different model than the
+    #: agent asked for (a gateway refused the configured one). AgentRuntime
+    #: saves it on the agent so the next turn starts with a working model.
+    resolved_model: str | None = None
 
     @abstractmethod
     def is_available(self) -> bool:

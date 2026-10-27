@@ -6,7 +6,14 @@
 # Caddy obtains and renews the certificate itself; nothing else changes,
 # because no hostname is baked into either image.
 :80 {
-	# Everything goes to the Next.js server, including /api - it proxies those
+	# The public per-agent endpoint, /v1/agents/{slug}/chat, goes straight to
+	# the backend. It carries the agent's own access key rather than the admin
+	# key, so there is nothing for the frontend proxy to do. First, so that the
+	# catch-all below cannot claim it.
+	@public path /v1/*
+	reverse_proxy @public backend:8000
+
+	# Everything else goes to the Next.js server, including /api - it proxies those
 	# on to the backend after adding the admin key. One upstream, so the
 	# browser only ever talks to one origin.
 	@api path /api/*
@@ -19,7 +26,7 @@
 
 	# Compression is worth it for the app shell and static assets, and is kept
 	# away from /api for the same streaming reason.
-	@static not path /api/*
+	@static not path /api/* /v1/*
 	encode @static zstd gzip
 	reverse_proxy @static frontend:3000
 

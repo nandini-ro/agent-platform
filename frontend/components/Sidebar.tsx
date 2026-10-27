@@ -16,7 +16,8 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (conversation: Conversation) => void;
   onOpenTools: () => void;
-  onOpenSecurity: () => void;
+  /** Absent when the deployment has security testing switched off. */
+  onOpenSecurity?: () => void;
 }
 
 export function Sidebar({
@@ -106,7 +107,9 @@ export function Sidebar({
           which floats in the bottom-left corner during development. */}
       <div className="space-y-0.5 border-t border-slate-800 px-3 pb-10 pt-3">
         <NavButton onClick={onOpenTools}>Tools &amp; MCP</NavButton>
-        <NavButton onClick={onOpenSecurity}>Security Testing</NavButton>
+        {onOpenSecurity && (
+          <NavButton onClick={onOpenSecurity}>Security Testing</NavButton>
+        )}
         <AdminKeyBar />
       </div>
     </aside>

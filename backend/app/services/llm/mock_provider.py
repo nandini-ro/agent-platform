@@ -49,6 +49,7 @@ class MockProvider(BaseLLMProvider):
     name = "mock"
     supports_tools = True
     requires_api_key = False
+    accepts_api_key = False
 
     def is_available(self) -> bool:
         return True

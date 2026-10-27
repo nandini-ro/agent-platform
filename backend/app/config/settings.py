@@ -8,6 +8,7 @@ CREDENTIAL_ENCRYPTION_KEY; see app/services/credentials.py.
 
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,7 +19,8 @@ class Settings(BaseSettings):
 
     app_name: str = "Agent Platform"
 
-    # SQLite for dev. Swap for postgresql+psycopg://... without code changes.
+    # SQLite for dev. A postgres:// or postgresql:// URL - the form Neon,
+    # Render and Heroku hand out - is pointed at the psycopg 3 driver.
     database_url: str = "sqlite:///./chatbot.db"
 
     # --- LLM providers -----------------------------------------------------
@@ -34,6 +36,16 @@ class Settings(BaseSettings):
     # Shared secret for POST /api/agents/{id}/chat. When unset the endpoint is
     # open, which is fine for a local POC but should be set for any shared host.
     agent_api_key: str | None = None
+
+    # The address the outside world reaches this deployment on, e.g.
+    # https://agents.example.com. Used only to show each agent's public URL
+    # (/v1/agents/{slug}/chat) in the UI. Blank lets the UI work it out from
+    # where it is served. On Render the platform's own RENDER_EXTERNAL_URL is
+    # used when this is not set, which is the backend's public address.
+    public_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("PUBLIC_BASE_URL", "RENDER_EXTERNAL_URL"),
+    )
 
     # --- Limits (adversarial input makes these load-bearing) ---------------
     tool_timeout_seconds: float = 10.0
@@ -52,6 +64,9 @@ class Settings(BaseSettings):
     http_tool_allow_private_networks: bool = False
 
     # --- Garak -------------------------------------------------------------
+    # Off removes the security-testing API and the UI panel. The container
+    # image does not install Garak, so docker-compose.yml turns this off.
+    security_testing_enabled: bool = True
     # Garak lives in its own virtualenv so its dependency tree never collides
     # with the backend's. Points at that interpreter.
     garak_python: str = ".venv-garak/bin/python"
@@ -61,6 +76,16 @@ class Settings(BaseSettings):
 
     # Both spellings of localhost: developers reach the UI by either.
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg_driver(cls, value: str) -> str:
+        # SQLAlchemy reads a bare postgresql:// as psycopg2, which is not
+        # installed; postgres:// it does not recognise at all.
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
 
     @property
     def http_tool_allowed_host_list(self) -> list[str]:

@@ -6,6 +6,8 @@ Two callers, one runtime:
   streams the assistant reply over SSE.
 * POST /api/agents/{id}/chat - stateless. The programmatic surface and the
   target Garak points at.
+
+The public, per-agent-key variant of the stateless call is in app/api/public.py.
 """
 
 from __future__ import annotations
@@ -82,10 +84,16 @@ async def agent_chat(
     Caller-side mistakes (unknown agent, bad API key) still return real error
     codes, because those should fail fast rather than be scored as output.
     """
+    return await run_stateless(agent, payload.message)
+
+
+async def run_stateless(agent: Agent, message: str) -> AgentChatResponse:
+    """One turn with no stored history. Shared with the public endpoint
+    (app/api/public.py), so both answer exactly as the UI's agent would."""
     runtime: AgentRuntime | None = None
     try:
         runtime = AgentRuntime(agent)
-        result = await runtime.run(history=[], user_message=payload.message)
+        result = await runtime.run(history=[], user_message=message)
     except ProviderNotConfigured as exc:
         logger.warning("agent %s: provider not configured: %s", agent.id, exc)
         return AgentChatResponse(

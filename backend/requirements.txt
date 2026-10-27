@@ -10,6 +10,10 @@ sse-starlette==3.4.11
 httpx==0.28.1
 jsonschema==4.26.0
 pyyaml==6.0.3
+# PostgreSQL driver, for DATABASE_URL=postgresql://... (e.g. Neon on Render's
+# free tier, which has no persistent disk for SQLite). The binary extra bundles
+# libpq, so the slim image needs no system packages.
+psycopg[binary]==3.3.6
 
 # LLM providers
 openai==3.16.2

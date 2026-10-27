@@ -28,6 +28,18 @@ import { adminKeyHeader } from "@/services/adminKey";
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
+/**
+ * Where outside callers reach this deployment, for showing agents' public
+ * URLs. PUBLIC_BASE_URL on the backend wins; otherwise the backend's own
+ * address, which in the container build is the page's origin (the API is
+ * served same-origin there, and Caddy routes /v1 to the backend).
+ */
+export function resolvePublicBaseUrl(configured: string): string {
+  if (configured) return configured;
+  if (BASE_URL) return BASE_URL.replace(/\/$/, "");
+  return typeof window === "undefined" ? "" : window.location.origin;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -111,6 +123,19 @@ export const updateAgent = (id: string, patch: Partial<AgentDraft>) =>
 
 export const deleteAgent = (id: string) =>
   request<void>(`/api/agents/${id}`, { method: "DELETE" });
+
+/** Issue (or rotate) the key for the agent's public URL. Shown once. */
+export const issueAccessKey = (id: string) =>
+  request<{ access_key: string; access_key_hint: string }>(
+    `/api/agents/${id}/access-key`,
+    { method: "POST" },
+  );
+
+export const revokeAccessKey = (id: string) =>
+  request<void>(`/api/agents/${id}/access-key`, { method: "DELETE" });
+
+export const getMeta = () =>
+  request<{ public_base_url: string; security_testing: boolean }>("/api/meta");
 
 export const listProviders = () =>
   request<ProviderInfo[]>("/api/agents/providers");

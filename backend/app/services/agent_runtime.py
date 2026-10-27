@@ -114,7 +114,9 @@ class AgentRuntime:
         # the provider client. It never enters prompts, messages or tool calls.
         # Raises ProviderNotConfigured when it cannot be decrypted.
         self._api_key = resolve_api_key(agent)
-        self.provider = get_provider(agent.provider, api_key=self._api_key)
+        self.provider = get_provider(
+            agent.provider, api_key=self._api_key, base_url=agent.base_url
+        )
         self.tools = tool_registry or default_tool_registry
         self.mcp = mcp_manager or default_mcp_manager
         # qualified tool name -> (server, discovered tool), filled by _load_tools
@@ -327,6 +329,33 @@ class AgentRuntime:
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
 
+    def _settle_model(self) -> str:
+        """The model that served this turn, saved on the agent if it changed.
+
+        A provider that had to fall back (a gateway refused the configured
+        model) reports what worked; keeping it means later turns go straight
+        to it instead of being refused again first.
+        """
+        resolved = getattr(self.provider, "resolved_model", None)
+        if resolved is None or resolved == self.agent.model:
+            return self.agent.model
+        session = SessionLocal()
+        try:
+            row = session.get(Agent, self.agent.id)
+            if row is not None:
+                row.model = resolved
+                session.commit()
+        finally:
+            session.close()
+        logger.info(
+            "agent %s: model %r replaced by %r",
+            self.agent.id,
+            self.agent.model,
+            resolved or "(endpoint default)",
+        )
+        self.agent.model = resolved
+        return resolved
+
     def _trim(self, history: list[LLMMessage]) -> list[LLMMessage]:
         """Bound the context window we resend. Keeps the most recent turns."""
         limit = self.settings.max_history_messages
@@ -399,7 +428,7 @@ class AgentRuntime:
             tool_calls=invocations,
             usage=usage,
             provider=self.agent.provider,
-            model=self.agent.model,
+            model=self._settle_model(),
             iterations=iterations,
             budget_exhausted=budget_exhausted,
         )
@@ -481,7 +510,7 @@ class AgentRuntime:
             tool_calls=invocations,
             usage=usage,
             provider=self.agent.provider,
-            model=self.agent.model,
+            model=self._settle_model(),
             iterations=iterations,
             budget_exhausted=budget_exhausted,
         )

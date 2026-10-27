@@ -46,7 +46,7 @@ export function AgentSelector({
                   selected ? "text-slate-300" : "text-slate-500"
                 }`}
               >
-                {agent.model}
+                {agent.model || "endpoint default"}
               </div>
             </button>
 

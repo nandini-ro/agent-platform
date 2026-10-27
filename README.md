@@ -205,7 +205,7 @@ Same model, same question, different rows in the database.
 
 ## Model providers
 
-Four providers ship. Each is one file under
+Five providers ship. Each is one file under
 [`backend/app/services/llm/`](backend/app/services/llm/) implementing
 `BaseLLMProvider`; nothing above that package imports a vendor SDK.
 
@@ -214,6 +214,7 @@ Four providers ship. Each is one file under
 | `openai` | `openai` | Chat Completions — maps 1:1 to the neutral format; Responses would need its item model translated both ways for no gain here |
 | `gemini` | `google-genai` | The current SDK, **not** the superseded `google-generativeai` |
 | `groq` | `openai` | OpenAI-compatible endpoint — a `base_url` subclass of the OpenAI adapter, not a separate one |
+| `custom` | `openai` | Any OpenAI-compatible endpoint (LiteLLM, vLLM, Ollama, an internal gateway). The agent supplies its own **base URL** and an optional key; no provider key is asked for |
 | `mock` | — | Deterministic, offline. Keeps tests hermetic and lets Garak run without spending tokens |
 
 Set the matching key in `backend/.env` and pick the provider in the agent form.
@@ -493,7 +494,29 @@ Only `stdio` transport is implemented. Others are rejected with a clear error.
 
 ## The agent API
 
-Every agent is programmatically callable. This is also what Garak targets.
+### Public URL, one per agent
+
+Every agent has a shareable address and a key that opens it and nothing else:
+
+```bash
+curl -X POST https://<your-host>/v1/agents/<slug>/chat \
+  -H "Authorization: Bearer agk_..." \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Hello"}'
+```
+
+The slug is derived from the agent's name and can be changed under
+**Configure → API access**, which is also where the key is generated, rotated
+or revoked. The key is shown once; only its first characters are kept for
+display, and only a SHA-256 digest is stored. An agent with no key refuses
+every call, and the admin key is not accepted here — so handing out an agent's
+key never hands out control of the platform. Set `PUBLIC_BASE_URL` if the UI
+should display a hostname other than the one it is served from.
+
+### Admin endpoint
+
+The original endpoint, keyed by agent id and guarded by the admin key. This is
+also what Garak targets.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/agents/{agent_id}/chat \

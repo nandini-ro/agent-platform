@@ -26,6 +26,44 @@ visitor exactly as readily as it authenticates you - it would look like
 authentication and protect nothing. The key lives in the administrator's
 browser instead.
 
+## Render, free tier
+
+[`render.yaml`](../render.yaml) deploys the backend and the UI as two free
+Render web services, with the database on an external PostgreSQL. Nothing here
+costs money, at the price of the limits listed below.
+
+1. **Create the database.** Sign up at [neon.tech](https://neon.tech), create a
+   project, and copy its connection string (`postgresql://...?sslmode=require`).
+2. **Push this repo to GitHub**, then in Render choose **New → Blueprint** and
+   pick it. Render asks for two values:
+   - `DATABASE_URL`: the Neon connection string.
+   - `BACKEND_INTERNAL_URL`: the backend's public URL,
+     `https://agent-platform-api.onrender.com`. If Render had to add a suffix
+     because the name was taken, correct it under the UI service's
+     **Environment** once the backend shows its real URL.
+3. **Open the backend service → Environment**, copy `AGENT_API_KEY`, open the
+   UI's URL, click **Add key** in the sidebar and paste it.
+
+The tables are created on first start. Agents' public URLs are on the backend:
+`https://agent-platform-api.onrender.com/v1/agents/<slug>/chat`.
+
+Limits of the free tier:
+
+- **Services sleep after 15 minutes without traffic** and take about a minute
+  to wake. That includes agents' public URLs: a caller with a short timeout
+  will fail on the first request after a quiet spell.
+- **750 free instance hours a month**, shared by both services. Sleeping
+  services do not use them; two services awake all month would need about
+  1,460, after which Render suspends them until the month ends.
+- **No persistent disk**, which is why the database is external. Do not point
+  `DATABASE_URL` at SQLite on a free service: the file is wiped on every
+  deploy and restart.
+
+To remove the sleep, change both services to `plan: starter` in
+`render.yaml`. The UI can then also reach the backend over Render's private
+network: set `BACKEND_INTERNAL_URL` from `fromService` (`property: hostport`)
+instead of the public URL.
+
 ## Sizing the VM
 
 **2 GB RAM minimum, 2 vCPU comfortable.** The constraint is the Next.js build,
@@ -123,6 +161,18 @@ and `docker compose restart caddy`. Caddy obtains and renews the certificate
 on its own. Nothing else changes — no hostname is baked into either image, and
 the frontend talks to the backend by service name regardless.
 
+## Sharing an agent
+
+Each agent's public URL is `https://<host>/v1/agents/<slug>/chat`. Caddy sends
+`/v1/*` straight to the backend, so it works as soon as the stack is up. Open
+the agent's **Configure** panel, generate a key under **API access**, and give
+out the URL and that key. The key opens that one agent's chat and nothing
+else; rotate or revoke it from the same place.
+
+There is no rate limit on this route. Every call spends the agent's provider
+credit, so put a limit in front of it (Caddy's `rate_limit` plugin, or
+Cloudflare) before you hand a key to anyone you would not hand your card to.
+
 ## Updating
 
 ```bash
@@ -152,9 +202,10 @@ note about secrets above.
 
 **Garak.** It lives in its own virtualenv for development and is not installed
 in the image; its dependency tree is large and it is only ever run as a
-subprocess. The Security panel will report that the interpreter is missing. To
-enable it, add `requirements-garak.txt` to the backend image and set
-`GARAK_PYTHON` to the interpreter you installed it with.
+subprocess. `docker-compose.yml` sets `SECURITY_TESTING_ENABLED=false`, which
+removes the Security Testing panel and the `/api/security` routes. To enable
+it, add `requirements-garak.txt` to the backend image, set `GARAK_PYTHON` to
+the interpreter you installed it with, and set the flag back to `true`.
 
 **PostgreSQL.** SQLite on a volume is the right size for one VM. If you
 outgrow it, add a `postgres` service and set

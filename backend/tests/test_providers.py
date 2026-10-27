@@ -55,7 +55,7 @@ REMOTE_PROVIDERS = {
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", ["openai", "gemini", "groq", "mock"])
+@pytest.mark.parametrize("name", ["openai", "gemini", "groq", "custom", "mock"])
 def test_registry_exposes_provider(name):
     provider = get_provider(name)
     assert isinstance(provider, BaseLLMProvider)
@@ -64,17 +64,21 @@ def test_registry_exposes_provider(name):
     assert provider.name == name
 
 
-@pytest.mark.parametrize("name", ["openai", "gemini", "groq", "mock"])
+@pytest.mark.parametrize("name", ["openai", "gemini", "groq", "custom", "mock"])
 def test_every_provider_declares_tool_support(name):
     assert get_provider(name).supports_tools is True
 
 
 def test_catalogue_lists_every_provider_with_model_suggestions():
     catalogue = {p["name"]: p for p in list_providers()}
-    assert set(catalogue) == {"openai", "gemini", "groq", "mock"}
+    assert set(catalogue) == {"openai", "gemini", "groq", "custom", "mock"}
     for name, entry in catalogue.items():
-        assert entry["models"], f"{name} has no suggested models"
-        assert entry["requires_api_key"] is (name != "mock")
+        # A custom endpoint serves whatever models it serves.
+        if name != "custom":
+            assert entry["models"], f"{name} has no suggested models"
+        assert entry["requires_api_key"] is (name not in ("mock", "custom"))
+        assert entry["accepts_api_key"] is (name != "mock")
+        assert entry["requires_base_url"] is (name == "custom")
 
 
 @pytest.mark.parametrize("name", sorted(REMOTE_PROVIDERS))

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { AgentAccess } from "@/components/AgentAccess";
 import type {
   Agent,
   AgentDraft,
@@ -19,6 +20,8 @@ interface AgentFormProps {
   error: string | null;
   onSave: (draft: AgentDraft) => void;
   onCancel: () => void;
+  publicBaseUrl: string;
+  onAccessChanged: () => void;
 }
 
 const EMPTY: AgentDraft = {
@@ -27,6 +30,7 @@ const EMPTY: AgentDraft = {
   system_prompt: "",
   provider: "mock",
   model: "mock-1",
+  base_url: null,
   temperature: 1,
   max_tokens: 2048,
   tools: [],
@@ -40,10 +44,12 @@ function toDraft(agent: Agent): AgentDraft {
     system_prompt: agent.system_prompt,
     provider: agent.provider,
     model: agent.model,
+    base_url: agent.base_url,
     temperature: agent.temperature,
     max_tokens: agent.max_tokens,
     tools: agent.tools,
     mcp_server_ids: agent.mcp_server_ids,
+    slug: agent.slug ?? "",
   };
 }
 
@@ -56,6 +62,8 @@ export function AgentForm({
   error,
   onSave,
   onCancel,
+  publicBaseUrl,
+  onAccessChanged,
 }: AgentFormProps) {
   // The form is mounted fresh each time it opens (and keyed by agent id), so
   // the initial value is all the synchronisation it needs.
@@ -70,6 +78,9 @@ export function AgentForm({
 
   const provider = providers.find((p) => p.name === draft.provider);
   const needsKey = provider?.requires_api_key ?? false;
+  const acceptsKey = provider?.accepts_api_key ?? false;
+  const isCustom = provider?.requires_base_url ?? false;
+  const modelOptional = provider?.model_optional ?? false;
   // A stored key only counts for the provider it was saved with.
   const keySaved = Boolean(
     agent?.has_api_key && agent.provider === draft.provider,
@@ -116,8 +127,13 @@ export function AgentForm({
               return;
             }
             setKeyError(null);
+            // A blank URL name is left out: derived on create, kept on update.
+            const { slug, ...rest } = draft;
+            const base: AgentDraft = slug?.trim()
+              ? { ...rest, slug: slug.trim() }
+              : rest;
             // Blank means "keep the stored key", so it is not sent at all.
-            onSave(needsKey && key ? { ...draft, api_key: key } : draft);
+            onSave(acceptsKey && key ? { ...base, api_key: key } : base);
           }}
         >
           <Field label="Agent name" required>
@@ -159,23 +175,34 @@ export function AgentForm({
                 onChange={(e) => {
                   const next = providers.find((p) => p.name === e.target.value);
                   set("provider", e.target.value);
-                  if (next?.models.length) set("model", next.models[0]);
+                  // A custom endpoint has no list to pick from, and the
+                  // previous provider's model would mean nothing to it.
+                  set("model", next?.models[0] ?? "");
                 }}
                 className={inputClass}
               >
                 {providers.map((p) => (
                   <option key={p.name} value={p.name}>
-                    {p.name}
+                    {p.requires_base_url ? "Custom endpoint (base URL + key)" : p.name}
                   </option>
                 ))}
               </select>
             </Field>
 
-            <Field label="Model">
+            <Field
+              label="Model"
+              hint={
+                modelOptional
+                  ? "Optional. Leave blank to use the endpoint's default; a model the key may not use is replaced with one it may."
+                  : undefined
+              }
+            >
               <input
+                required={!modelOptional}
                 list="model-suggestions"
                 value={draft.model}
                 onChange={(e) => set("model", e.target.value)}
+                placeholder={modelOptional ? "Endpoint default" : undefined}
                 className={inputClass}
               />
               <datalist id="model-suggestions">
@@ -186,11 +213,33 @@ export function AgentForm({
             </Field>
           </div>
 
-          {needsKey && (
+          {isCustom && (
             <Field
-              label="API key"
-              required={!keySaved}
-              hint="Encrypted on the server and never shown again."
+              label="Base URL"
+              required
+              hint="An OpenAI-compatible endpoint. The system prompt and each message are sent to {base URL}/chat/completions."
+            >
+              <input
+                required
+                type="url"
+                value={draft.base_url ?? ""}
+                onChange={(e) => set("base_url", e.target.value)}
+                placeholder="https://your-endpoint.example.com/v1"
+                spellCheck={false}
+                className={`${inputClass} font-mono`}
+              />
+            </Field>
+          )}
+
+          {acceptsKey && (
+            <Field
+              label={isCustom ? "Key" : "API key"}
+              required={needsKey && !keySaved}
+              hint={
+                isCustom
+                  ? "Optional - leave blank if your endpoint needs none. Encrypted on the server and never shown again."
+                  : "Encrypted on the server and never shown again."
+              }
             >
               <div className="flex gap-2">
                 <input
@@ -203,7 +252,9 @@ export function AgentForm({
                   placeholder={
                     keySaved
                       ? "Leave blank to keep the saved key"
-                      : `Paste your ${draft.provider} API key`
+                      : isCustom
+                        ? "Your endpoint's key, if it has one"
+                        : `Paste your ${draft.provider} API key`
                   }
                   autoComplete="new-password"
                   spellCheck={false}
@@ -219,13 +270,17 @@ export function AgentForm({
                 </button>
               </div>
               <span
-                className={`mt-1 block text-xs ${keySaved ? "text-emerald-700" : "text-amber-700"}`}
+                className={`mt-1 block text-xs ${keySaved ? "text-emerald-700" : isCustom ? "text-slate-500" : "text-amber-700"}`}
               >
                 {keySaved
-                  ? "✓ API key configured. Enter a new key to replace it."
+                  ? "✓ Key configured. Enter a new key to replace it."
                   : agent?.has_api_key
-                    ? `The saved key belongs to ${agent.provider}. Enter a ${draft.provider} API key.`
-                    : "No API key configured."}
+                    ? `The saved key belongs to ${agent.provider}. Enter a key for this provider.`
+                    : isCustom
+                      ? apiKey.trim()
+                        ? "The key will be saved with the agent."
+                        : "No key - requests are sent without one."
+                      : "No API key configured."}
               </span>
             </Field>
           )}
@@ -300,6 +355,14 @@ export function AgentForm({
               ))}
             </div>
           </Field>
+
+          <AgentAccess
+            agent={agent}
+            slug={draft.slug ?? ""}
+            onSlugChange={(slug) => set("slug", slug)}
+            publicBaseUrl={publicBaseUrl}
+            onAccessChanged={onAccessChanged}
+          />
 
           {(keyError ?? error) && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
