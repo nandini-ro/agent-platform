@@ -14,6 +14,8 @@ pyyaml==6.0.3
 # free tier, which has no persistent disk for SQLite). The binary extra bundles
 # libpq, so the slim image needs no system packages.
 psycopg[binary]==3.3.6
+# Text extraction for the built-in read_pdf tool. Pure Python, BSD licensed.
+pypdf==6.21.3
 
 # LLM providers
 openai==3.16.2

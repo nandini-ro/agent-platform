@@ -304,12 +304,25 @@ contract across every adapter.
 Tools live in [`backend/app/services/tool_registry.py`](backend/app/services/tool_registry.py).
 Each declares a name, a description, a JSON Schema, and an async `execute`.
 
-Two demo tools ship:
+Seven ship, all selectable per agent. None needs an API key or account:
 
-| Tool | Description |
-|---|---|
-| `calculator` | Arithmetic over a parsed AST — `+ - * / % **` and parentheses |
-| `current_time` | Current UTC time, ISO 8601 |
+| Tool | Description | Backed by |
+|---|---|---|
+| `calculator` | Arithmetic over a parsed AST — `+ - * / % **` and parentheses | local |
+| `current_time` | Current UTC time, ISO 8601 | local |
+| `get_weather` | Current weather and up to a 7-day forecast for a place name | [Open-Meteo](https://open-meteo.com) |
+| `search_arxiv` | Research papers: title, authors, date, abstract, PDF link | [arXiv API](https://info.arxiv.org/help/api/) |
+| `read_pdf` | Text of a PDF at a public URL, up to 30 pages | [pypdf](https://github.com/py-pdf/pypdf), local |
+| `web_search` | Instant answer plus result links | DuckDuckGo + Wikipedia, or your own [SearXNG](https://github.com/searxng/searxng) |
+| `travel_info` | Country facts, plus today's exchange rate from a home currency | [mledoze/countries](https://github.com/mledoze/countries) (bundled, ODbL) + [Frankfurter](https://frankfurter.dev) |
+
+The public-service tools are in
+[`builtin_tools.py`](backend/app/services/builtin_tools.py). Each calls a fixed
+host, except `read_pdf`, whose URL comes from the model: it goes through the
+same SSRF check as custom HTTP tools on every redirect hop, and is capped at
+15 MB. `web_search` without configuration covers encyclopaedic topics only;
+set `WEB_SEARCH_SEARXNG_URL` to a SearXNG instance (with JSON output enabled)
+for general web results.
 
 Beyond these, tools come from two places: **custom HTTP tools** defined in the
 UI (below), and **MCP servers** (further down). All three kinds share one

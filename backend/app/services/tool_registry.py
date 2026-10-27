@@ -8,47 +8,24 @@ by each tool:
 2. Arguments are validated against the tool's JSON Schema before execution.
 
 Nothing here shells out, imports dynamically, or evaluates model-supplied code.
+
+The tools that reach public services (weather, arXiv, PDF, search, travel)
+live in app/services/builtin_tools.py and are registered alongside these.
 """
 
 from __future__ import annotations
 
 import ast
 import operator
-from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
-
+from app.services.builtin_tools import BUILTIN_TOOLS
 from app.services.llm.base import ToolSpec
+# Re-exported: callers import the contract from here.
+from app.services.tool_base import BaseTool, ToolError
 
-
-class ToolError(Exception):
-    """A tool failed in a way the model should be told about."""
-
-
-class BaseTool(ABC):
-    name: str
-    description: str
-    input_schema: dict[str, Any]
-
-    @abstractmethod
-    async def execute(self, arguments: dict[str, Any]) -> str:
-        """Run the tool. Returns a string the model can read."""
-
-    def spec(self) -> ToolSpec:
-        return ToolSpec(
-            name=self.name,
-            description=self.description,
-            input_schema=self.input_schema,
-        )
-
-    def validate(self, arguments: dict[str, Any]) -> None:
-        try:
-            Draft202012Validator(self.input_schema).validate(arguments)
-        except ValidationError as exc:
-            raise ToolError(f"Invalid arguments: {exc.message}") from exc
+__all__ = ["BaseTool", "ToolError", "ToolRegistry", "registry"]
 
 
 # ---------------------------------------------------------------------------
@@ -177,4 +154,4 @@ class ToolRegistry:
         ]
 
 
-registry = ToolRegistry([CalculatorTool(), CurrentTimeTool()])
+registry = ToolRegistry([CalculatorTool(), CurrentTimeTool(), *BUILTIN_TOOLS])

@@ -75,7 +75,15 @@ def test_calculator_rejects_arguments_that_violate_schema():
 
 
 def test_registry_exposes_demo_tools():
-    assert registry.names() == ["calculator", "current_time"]
+    assert registry.names() == [
+        "calculator",
+        "current_time",
+        "get_weather",
+        "read_pdf",
+        "search_arxiv",
+        "travel_info",
+        "web_search",
+    ]
 
 
 def test_specs_for_returns_only_named_tools():

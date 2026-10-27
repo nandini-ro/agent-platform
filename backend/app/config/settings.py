@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # anything on the host's network, including cloud metadata services.
     http_tool_allow_private_networks: bool = False
 
+    # --- Built-in tools ----------------------------------------------------
+    # A SearXNG instance (open-source metasearch) for the web_search tool, e.g.
+    # https://search.example.com. Blank uses DuckDuckGo instant answers plus
+    # Wikipedia search, which need no setup but only cover encyclopaedic
+    # topics. The instance must have its JSON output format enabled.
+    web_search_searxng_url: str = ""
+
     # --- Garak -------------------------------------------------------------
     # Off removes the security-testing API and the UI panel. The container
     # image does not install Garak, so docker-compose.yml turns this off.
