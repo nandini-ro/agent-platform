@@ -47,6 +47,7 @@ export default function Home() {
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
   const [publicBaseUrl, setPublicBaseUrl] = useState("");
   const [securityTesting, setSecurityTesting] = useState(false);
+  const [adminKeyRequired, setAdminKeyRequired] = useState(true);
 
   // Selection.
   //
@@ -111,12 +112,17 @@ export default function Home() {
         // Optional: without it the URL falls back to the backend's address.
         api
           .getMeta()
-          .catch(() => ({ public_base_url: "", security_testing: false })),
+          .catch(() => ({
+            public_base_url: "",
+            security_testing: false,
+            admin_key_required: true,
+          })),
       ])
         .then(([agentList, providerList, toolList, serverList, meta]) => {
           if (cancelled) return;
           setPublicBaseUrl(api.resolvePublicBaseUrl(meta.public_base_url));
           setSecurityTesting(meta.security_testing);
+          setAdminKeyRequired(meta.admin_key_required);
           setAgents(agentList);
           setProviders(providerList);
           setTools(toolList);
@@ -375,6 +381,7 @@ export default function Home() {
         onOpenSecurity={
           securityTesting ? () => setOverlay("security") : undefined
         }
+        adminKeyRequired={adminKeyRequired}
       />
 
       <main className="min-w-0 flex-1">

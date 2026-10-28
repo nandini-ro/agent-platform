@@ -106,4 +106,7 @@ def meta() -> dict:
     return {
         "public_base_url": settings.public_base_url.rstrip("/"),
         "security_testing": settings.security_testing_enabled,
+        # False when AGENT_API_KEY is unset: every write is open, and the UI
+        # hides its admin-key control.
+        "admin_key_required": bool(settings.agent_api_key),
     }

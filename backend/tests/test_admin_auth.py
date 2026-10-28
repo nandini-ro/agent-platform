@@ -84,3 +84,9 @@ def test_an_unset_key_leaves_writes_open(client, agent_payload):
     """The local-checkout default. conftest blanks AGENT_API_KEY."""
     assert main.settings.agent_api_key == ""
     assert client.post("/api/agents", json=agent_payload).status_code == 201
+
+
+def test_meta_tells_the_ui_whether_a_key_is_needed(client, monkeypatch):
+    assert client.get("/api/meta").json()["admin_key_required"] is False
+    monkeypatch.setattr(main.settings, "agent_api_key", KEY)
+    assert client.get("/api/meta").json()["admin_key_required"] is True

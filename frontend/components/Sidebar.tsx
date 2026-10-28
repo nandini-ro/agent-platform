@@ -18,6 +18,8 @@ interface SidebarProps {
   onOpenTools: () => void;
   /** Absent when the deployment has security testing switched off. */
   onOpenSecurity?: () => void;
+  /** False when the server has no admin key, so there is nothing to enter. */
+  adminKeyRequired?: boolean;
 }
 
 export function Sidebar({
@@ -33,6 +35,7 @@ export function Sidebar({
   onSelectConversation,
   onOpenTools,
   onOpenSecurity,
+  adminKeyRequired = true,
 }: SidebarProps) {
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col bg-slate-900 text-slate-100">
@@ -110,7 +113,7 @@ export function Sidebar({
         {onOpenSecurity && (
           <NavButton onClick={onOpenSecurity}>Security Testing</NavButton>
         )}
-        <AdminKeyBar />
+        {adminKeyRequired && <AdminKeyBar />}
       </div>
     </aside>
   );

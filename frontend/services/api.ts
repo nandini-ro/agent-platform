@@ -136,7 +136,11 @@ export const revokeAccessKey = (id: string) =>
   request<void>(`/api/agents/${id}/access-key`, { method: "DELETE" });
 
 export const getMeta = () =>
-  request<{ public_base_url: string; security_testing: boolean }>("/api/meta");
+  request<{
+    public_base_url: string;
+    security_testing: boolean;
+    admin_key_required: boolean;
+  }>("/api/meta");
 
 export const listProviders = () =>
   request<ProviderInfo[]>("/api/agents/providers");

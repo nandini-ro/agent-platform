@@ -36,10 +36,11 @@ services:
       # points it at the psycopg driver itself.
       - key: DATABASE_URL
         sync: false
-      # Guards every write under /api. Generated once; copy it from this
-      # service's Environment tab and paste it into the UI's "Add key".
-      - key: AGENT_API_KEY
-        generateValue: true
+      # No AGENT_API_KEY: every write under /api is open to anyone who can
+      # reach the URL, including adding MCP servers (which run commands on
+      # this service) and spending the agents' provider keys. To lock it
+      # again, add AGENT_API_KEY with a long random value; the UI then shows
+      # an "Add key" control for entering it.
       # Encrypts each agent's provider key at rest. Render generates a
       # base64-encoded 256-bit value, which is exactly the format required.
       # Never change it once agents have keys saved: they become unreadable.
