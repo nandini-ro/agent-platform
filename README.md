@@ -203,9 +203,27 @@ The seed data makes this immediate. Ask all three "What is 14 * 3?":
 
 Same model, same question, different rows in the database.
 
+### Attach images and files
+
+The paperclip next to the message box attaches up to 5 files to a message;
+pasting a screenshot or dropping files onto the box works too.
+
+- **Documents** - PDF, TXT, MD, CSV, JSON and other text files, up to 10 MB.
+  The text is extracted on the server (PDFs up to 50 pages) and sent with the
+  message, so this works with every model.
+- **Images** - PNG, JPEG, WebP or GIF, up to 4 MB, at most 3 per message. They
+  are sent to the model as images, so the agent's model must accept images:
+  on Groq that is `qwen/qwen3.8-27b`; `openai/gpt-oss-120b` is text-only.
+
+Files are recognised by their content, not their extension. Images stay in
+the database and are resent on later turns (the 3 newest), so follow-up
+questions about them work; documents keep only their extracted text. Deleting
+a conversation deletes its files, and uploads never sent are removed after a
+day.
+
 ## Model providers
 
-Four providers ship. Each is one file under
+Five providers ship. Each is one file under
 [`backend/app/services/llm/`](backend/app/services/llm/) implementing
 `BaseLLMProvider`; nothing above that package imports a vendor SDK.
 
@@ -214,6 +232,7 @@ Four providers ship. Each is one file under
 | `openai` | `openai` | Chat Completions — maps 1:1 to the neutral format; Responses would need its item model translated both ways for no gain here |
 | `gemini` | `google-genai` | The current SDK, **not** the superseded `google-generativeai` |
 | `groq` | `openai` | OpenAI-compatible endpoint — a `base_url` subclass of the OpenAI adapter, not a separate one |
+| `custom` | `openai` | Any OpenAI-compatible endpoint (LiteLLM, vLLM, Ollama, an internal gateway). The agent supplies its own **base URL** and an optional key; no provider key is asked for |
 | `mock` | — | Deterministic, offline. Keeps tests hermetic and lets Garak run without spending tokens |
 
 Set the matching key in `backend/.env` and pick the provider in the agent form.
@@ -303,12 +322,25 @@ contract across every adapter.
 Tools live in [`backend/app/services/tool_registry.py`](backend/app/services/tool_registry.py).
 Each declares a name, a description, a JSON Schema, and an async `execute`.
 
-Two demo tools ship:
+Seven ship, all selectable per agent. None needs an API key or account:
 
-| Tool | Description |
-|---|---|
-| `calculator` | Arithmetic over a parsed AST — `+ - * / % **` and parentheses |
-| `current_time` | Current UTC time, ISO 8601 |
+| Tool | Description | Backed by |
+|---|---|---|
+| `calculator` | Arithmetic over a parsed AST — `+ - * / % **` and parentheses | local |
+| `current_time` | Current UTC time, ISO 8601 | local |
+| `get_weather` | Current weather and up to a 7-day forecast for a place name | [Open-Meteo](https://open-meteo.com) |
+| `search_arxiv` | Research papers: title, authors, date, abstract, PDF link | [arXiv API](https://info.arxiv.org/help/api/) |
+| `read_pdf` | Text of a PDF at a public URL, up to 30 pages | [pypdf](https://github.com/py-pdf/pypdf), local |
+| `web_search` | Instant answer plus result links | DuckDuckGo + Wikipedia, or your own [SearXNG](https://github.com/searxng/searxng) |
+| `travel_info` | Country facts, plus today's exchange rate from a home currency | [mledoze/countries](https://github.com/mledoze/countries) (bundled, ODbL) + [Frankfurter](https://frankfurter.dev) |
+
+The public-service tools are in
+[`builtin_tools.py`](backend/app/services/builtin_tools.py). Each calls a fixed
+host, except `read_pdf`, whose URL comes from the model: it goes through the
+same SSRF check as custom HTTP tools on every redirect hop, and is capped at
+15 MB. `web_search` without configuration covers encyclopaedic topics only;
+set `WEB_SEARCH_SEARXNG_URL` to a SearXNG instance (with JSON output enabled)
+for general web results.
 
 Beyond these, tools come from two places: **custom HTTP tools** defined in the
 UI (below), and **MCP servers** (further down). All three kinds share one
@@ -493,7 +525,29 @@ Only `stdio` transport is implemented. Others are rejected with a clear error.
 
 ## The agent API
 
-Every agent is programmatically callable. This is also what Garak targets.
+### Public URL, one per agent
+
+Every agent has a shareable address and a key that opens it and nothing else:
+
+```bash
+curl -X POST https://<your-host>/v1/agents/<slug>/chat \
+  -H "Authorization: Bearer agk_..." \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "Hello"}'
+```
+
+The slug is derived from the agent's name and can be changed under
+**Configure → API access**, which is also where the key is generated, rotated
+or revoked. The key is shown once; only its first characters are kept for
+display, and only a SHA-256 digest is stored. An agent with no key refuses
+every call, and the admin key is not accepted here — so handing out an agent's
+key never hands out control of the platform. Set `PUBLIC_BASE_URL` if the UI
+should display a hostname other than the one it is served from.
+
+### Admin endpoint
+
+The original endpoint, keyed by agent id and guarded by the admin key. This is
+also what Garak targets.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/agents/{agent_id}/chat \

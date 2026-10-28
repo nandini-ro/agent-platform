@@ -1,0 +1,76 @@
+# Render Blueprint, free tier: the same two containers as docker-compose.yml,
+# without Caddy - Render terminates TLS and gives each service its own
+# onrender.com URL.
+#
+#   agent-platform      the UI. Its /api proxy forwards to the backend.
+#   agent-platform-api  the backend. Public, because it also serves each
+#                       agent's public URL: /v1/agents/<slug>/chat.
+#
+# The database is an external PostgreSQL (Neon's free tier works), because a
+# free Render service has no persistent disk - SQLite there would be wiped on
+# every deploy and restart - and Render's own free Postgres expires after 30
+# days.
+#
+# Free services sleep after 15 minutes without traffic and take about a minute
+# to wake. Moving both to `plan: starter` removes that; see docs/deployment.md.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repo. Render asks
+# for the two `sync: false` values below.
+
+services:
+  - type: web
+    name: agent-platform-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: PORT
+        value: "8000"
+      # Paste the connection string from Neon (postgresql://...). The backend
+      # points it at the psycopg driver itself.
+      - key: DATABASE_URL
+        sync: false
+      # No admin key: every write under /api is open to anyone who can reach
+      # the URL, including adding MCP servers (which run commands on this
+      # service) and spending the agents' provider keys. To lock it, add
+      # AGENT_API_KEY with a long random value and ADMIN_KEY_ENABLED=true;
+      # the UI then shows an "Add key" control for entering it.
+      # Encrypts each agent's provider key at rest. Render generates a
+      # base64-encoded 256-bit value, which is exactly the format required.
+      # Never change it once agents have keys saved: they become unreadable.
+      - key: CREDENTIAL_ENCRYPTION_KEY
+        generateValue: true
+      # Garak is not installed in the image.
+      - key: SECURITY_TESTING_ENABLED
+        value: "false"
+      # The browser only ever talks to the UI's own origin.
+      - key: CORS_ORIGINS
+        value: ""
+      # PUBLIC_BASE_URL is left unset: the backend falls back to Render's
+      # RENDER_EXTERNAL_URL, its own public address. Set it if you add a
+      # custom domain to this service.
+
+  - type: web
+    name: agent-platform
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    region: oregon
+    buildFilter:
+      paths:
+        - frontend/**
+    envVars:
+      - key: PORT
+        value: "3000"
+      # The backend's public URL, e.g. https://agent-platform-api.onrender.com
+      # (shown at the top of that service's page). A free service cannot
+      # receive private-network traffic, so the proxy goes the public way.
+      - key: BACKEND_INTERNAL_URL
+        sync: false

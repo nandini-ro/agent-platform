@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { MessageBubble } from "@/components/Message";
 import { MessageInput } from "@/components/MessageInput";
-import type { Agent, Message, PendingMessage } from "@/types";
+import type { Agent, Attachment, Message, PendingMessage } from "@/types";
 
 interface ChatWindowProps {
   agent: Agent;
@@ -12,7 +12,7 @@ interface ChatWindowProps {
   pending: PendingMessage | null;
   sending: boolean;
   error: string | null;
-  onSend: (content: string) => void;
+  onSend: (content: string, attachments: Attachment[]) => void;
   onDismissError: () => void;
   onEditAgent: () => void;
 }
@@ -43,7 +43,7 @@ export function ChatWindow({
             {agent.name}
           </h1>
           <p className="truncate text-xs text-slate-500">
-            {agent.provider} · {agent.model}
+            {agent.provider} · {agent.model || "endpoint default"}
             {toolCount > 0 && ` · ${toolCount} tool source(s)`}
           </p>
         </div>
@@ -67,6 +67,7 @@ export function ChatWindow({
               key={message.id}
               role={message.role}
               content={message.content}
+              attachments={message.meta?.attachments}
               toolCalls={message.meta?.tool_calls}
               meta={message.meta}
             />

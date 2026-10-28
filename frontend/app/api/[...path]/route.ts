@@ -19,7 +19,12 @@
  */
 
 // The backend publishes no port; it is reachable only on the compose network.
-const BACKEND = process.env.BACKEND_INTERNAL_URL ?? "http://backend:8000";
+// Render hands over a bare "host:port" for a private-network address, so a
+// missing scheme is filled in rather than producing an unparseable URL.
+const configured = process.env.BACKEND_INTERNAL_URL ?? "http://backend:8000";
+const BACKEND = /^https?:\/\//.test(configured)
+  ? configured
+  : `http://${configured}`;
 
 // No route segment config is needed here. Route Handlers are uncached by
 // default in this version of Next (caching is opt-in via `dynamic`), and the

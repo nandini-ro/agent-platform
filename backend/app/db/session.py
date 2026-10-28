@@ -37,6 +37,34 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _add_missing_columns()
+    _backfill_agent_slugs()
+
+
+def _backfill_agent_slugs() -> None:
+    """Give agents created before public addresses existed a slug.
+
+    create_all() does not touch an existing table, so the unique index the
+    model declares is created here too. Both steps are idempotent.
+    """
+    from sqlalchemy import select, text, update
+
+    from app.models.agent import Agent, next_free_slug
+
+    with engine.begin() as connection:
+        rows = connection.execute(
+            select(Agent.id, Agent.name)
+            .where(Agent.slug.is_(None))
+            .order_by(Agent.created_at)
+        ).all()
+        for agent_id, name in rows:
+            connection.execute(
+                update(Agent)
+                .where(Agent.id == agent_id)
+                .values(slug=next_free_slug(connection, name))
+            )
+        connection.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_agents_slug ON agents (slug)")
+        )
 
 
 def _add_missing_columns() -> None:

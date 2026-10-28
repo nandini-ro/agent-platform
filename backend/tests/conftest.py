@@ -15,9 +15,14 @@ import pytest
 _fd, _DB_PATH = tempfile.mkstemp(suffix=".db", prefix="agent-platform-test-")
 os.close(_fd)
 
+# TEST_DATABASE_URL runs the suite against another engine - a throwaway
+# PostgreSQL, say - instead of a temporary SQLite file. Point it only at a
+# database you are happy to have written to.
+_TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_DB_PATH}"
+
 # Environment variables take precedence over .env in pydantic-settings, so this
 # wins over whatever the developer has configured locally.
-os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
+os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
 os.environ["DEFAULT_PROVIDER"] = "mock"
 
 # Blank out every credential. These are *set to empty*, not deleted: Settings
@@ -67,8 +72,9 @@ def client():
     from app.main import app
 
     # Guard against the failure this module exists to prevent.
-    assert str(engine.url).endswith(_DB_PATH), (
-        f"tests are pointed at {engine.url}, not the temporary database"
+    expected = _TEST_DATABASE_URL.split("@")[-1].split("/")[-1]
+    assert engine.url.render_as_string(hide_password=False).endswith(expected), (
+        f"tests are pointed at {engine.url}, not the test database"
     )
 
     init_db()

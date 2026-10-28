@@ -16,7 +16,10 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (conversation: Conversation) => void;
   onOpenTools: () => void;
-  onOpenSecurity: () => void;
+  /** Absent when the deployment has security testing switched off. */
+  onOpenSecurity?: () => void;
+  /** False when the server has no admin key, so there is nothing to enter. */
+  adminKeyRequired?: boolean;
 }
 
 export function Sidebar({
@@ -32,6 +35,7 @@ export function Sidebar({
   onSelectConversation,
   onOpenTools,
   onOpenSecurity,
+  adminKeyRequired = true,
 }: SidebarProps) {
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col bg-slate-900 text-slate-100">
@@ -106,8 +110,10 @@ export function Sidebar({
           which floats in the bottom-left corner during development. */}
       <div className="space-y-0.5 border-t border-slate-800 px-3 pb-10 pt-3">
         <NavButton onClick={onOpenTools}>Tools &amp; MCP</NavButton>
-        <NavButton onClick={onOpenSecurity}>Security Testing</NavButton>
-        <AdminKeyBar />
+        {onOpenSecurity && (
+          <NavButton onClick={onOpenSecurity}>Security Testing</NavButton>
+        )}
+        {adminKeyRequired && <AdminKeyBar />}
       </div>
     </aside>
   );

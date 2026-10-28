@@ -28,7 +28,7 @@ def require_agent_api_key(
     default for a local POC. Once set, it is enforced with a constant-time
     comparison - this is the key Garak supplies via $KEY.
     """
-    expected = get_settings().agent_api_key
+    expected = get_settings().admin_key
     if not expected:
         return
     if not x_api_key or not secrets.compare_digest(x_api_key, expected):

@@ -6,28 +6,50 @@ export interface Agent {
   description: string;
   system_prompt: string;
   provider: string;
+  /** Blank when the endpoint chooses (providers with `model_optional`). */
   model: string;
+  /** The endpoint a "custom" provider agent calls. */
+  base_url: string | null;
   temperature: number;
   max_tokens: number;
   tools: string[];
   mcp_server_ids: string[];
   /** A provider API key is stored for the current provider. The key itself is never returned. */
   has_api_key: boolean;
+  /** The agent's public URL name: /v1/agents/{slug}/chat. */
+  slug: string | null;
+  /** An access key for the public URL exists. Only its first characters are returned. */
+  has_access_key: boolean;
+  access_key_hint: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type AgentDraft = Omit<
   Agent,
-  "id" | "created_at" | "updated_at" | "has_api_key"
+  | "id"
+  | "created_at"
+  | "updated_at"
+  | "has_api_key"
+  | "slug"
+  | "has_access_key"
+  | "access_key_hint"
 > & {
   /** Write-only. Omitted or blank on update keeps the stored key. */
   api_key?: string;
+  /** Omitted derives one from the name on create, and keeps the current one on update. */
+  slug?: string;
 };
 
 export interface ProviderInfo {
   name: string;
   requires_api_key: boolean;
+  /** A key may be entered even when not required (a custom endpoint's). */
+  accepts_api_key: boolean;
+  /** The agent supplies the endpoint - the "custom" provider. */
+  requires_base_url: boolean;
+  /** The model may be left blank for the endpoint to choose. */
+  model_optional: boolean;
   supports_tools: boolean;
   models: string[];
 }
@@ -84,6 +106,15 @@ export interface HTTPToolTestResult {
   duration_ms: number;
 }
 
+/** A file sent with a chat message. Images are shown to the model; documents are read as text. */
+export interface Attachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  kind: "image" | "document";
+}
+
 export interface ToolCall {
   name: string;
   arguments: Record<string, unknown>;
@@ -108,6 +139,8 @@ export interface Message {
   content: string;
   meta: {
     tool_calls?: ToolCall[];
+    /** Files sent with a user message. */
+    attachments?: Attachment[];
     provider?: string;
     model?: string;
     usage?: Record<string, number>;

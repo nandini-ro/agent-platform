@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, chat, conversations, mcp, security, tools
+from app.api import agents, attachments, chat, conversations, mcp, public, security, tools
 from app.config.settings import get_settings
 from app.db.session import init_db
 
@@ -55,7 +55,8 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 async def require_admin_key(request: Request, call_next):
     """Require AGENT_API_KEY on any state-changing /api request.
 
-    With the key unset this is a no-op, so a local checkout stays frictionless.
+    Only with ADMIN_KEY_ENABLED=true. Otherwise, or with the key unset, this
+    is a no-op, so a local checkout stays frictionless.
     Once set it is the line between "reads the demo" and "runs a command on
     this host", which is why it is enforced here rather than route by route: a
     new endpoint is covered the moment it is written, instead of whenever
@@ -66,7 +67,7 @@ async def require_admin_key(request: Request, call_next):
     request. Put the whole app behind a proxy or a private network if the
     configuration itself is sensitive.
     """
-    expected = settings.agent_api_key
+    expected = settings.admin_key
     if (
         expected
         and request.method in _MUTATING_METHODS
@@ -83,13 +84,30 @@ async def require_admin_key(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(agents.router)
+app.include_router(attachments.router)
 app.include_router(conversations.router)
 app.include_router(chat.router)
 app.include_router(tools.router)
 app.include_router(mcp.router)
-app.include_router(security.router)
+if settings.security_testing_enabled:
+    app.include_router(security.router)
+# Outside /api, so the admin key gate above does not apply; each agent's own
+# access key guards it instead. See app/api/public.py.
+app.include_router(public.router)
 
 
 @app.get("/health", tags=["meta"])
 def health() -> dict:
     return {"status": "ok", "app": settings.app_name}
+
+
+@app.get("/api/meta", tags=["meta"])
+def meta() -> dict:
+    """Deployment facts the UI needs - currently just where it is reachable."""
+    return {
+        "public_base_url": settings.public_base_url.rstrip("/"),
+        "security_testing": settings.security_testing_enabled,
+        # False when AGENT_API_KEY is unset: every write is open, and the UI
+        # hides its admin-key control.
+        "admin_key_required": bool(settings.admin_key),
+    }

@@ -271,7 +271,7 @@ class _CapturingProvider:
 async def test_key_never_reaches_prompts_messages_or_tools(client, groq_payload, monkeypatch):
     created = {}
 
-    def factory(name, api_key=None):
+    def factory(name, api_key=None, base_url=None):
         created["provider"] = _CapturingProvider(api_key)
         return created["provider"]
 

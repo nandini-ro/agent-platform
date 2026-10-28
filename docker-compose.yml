@@ -3,9 +3,9 @@
 #
 #   docker compose --env-file .env up -d --build
 #
-# The backend is deliberately not published. Everything reaches it through the
-# frontend's /api proxy, which is what keeps the admin key server-side: see
-# frontend/app/api/[...path]/route.ts.
+# The backend is deliberately not published. /api reaches it through the
+# frontend's proxy (frontend/app/api/[...path]/route.ts); the public per-agent
+# endpoint, /v1, through Caddy directly. Nothing else does.
 
 name: chatbot
 
@@ -28,6 +28,8 @@ services:
       # Fails the stack fast if it is missing, rather than starting an API
       # whose writes are open to anyone who finds it.
       AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env - see .env.example}
+      # The key is enforced only when this is on; this deployment keeps it on.
+      ADMIN_KEY_ENABLED: "true"
       # Encrypts each agent's provider API key at rest.
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env - see .env.example}
       # The volume below, not the image layer.
@@ -36,6 +38,9 @@ services:
       # there is no cross-origin call left for CORS to authorise.
       CORS_ORIGINS: ""
       SELF_BASE_URL: http://backend:8000
+      # Garak is not installed in the image, so the Security Testing panel and
+      # its API are switched off rather than left to fail.
+      SECURITY_TESTING_ENABLED: "false"
     volumes:
       - backend-data:/data
     expose:

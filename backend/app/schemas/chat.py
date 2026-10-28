@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.services.attachments import MAX_ATTACHMENTS_PER_MESSAGE
 
 
 class AgentChatRequest(BaseModel):
@@ -29,4 +31,15 @@ class AgentChatResponse(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    content: str = Field(min_length=1)
+    # May be empty when the message is only attachments.
+    content: str = ""
+    # Ids from POST /api/attachments, claimed by this message.
+    attachment_ids: list[str] = Field(
+        default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE
+    )
+
+    @model_validator(mode="after")
+    def has_something_to_send(self) -> "SendMessageRequest":
+        if not self.content.strip() and not self.attachment_ids:
+            raise ValueError("A message needs text or an attachment.")
+        return self

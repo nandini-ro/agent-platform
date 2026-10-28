@@ -49,6 +49,7 @@ class MockProvider(BaseLLMProvider):
     name = "mock"
     supports_tools = True
     requires_api_key = False
+    accepts_api_key = False
 
     def is_available(self) -> bool:
         return True
@@ -85,8 +86,19 @@ class MockProvider(BaseLLMProvider):
 
         user_text = ""
         for m in reversed(messages):
-            if m.role == "user" and isinstance(m.content, str):
+            if m.role != "user":
+                continue
+            if isinstance(m.content, str):
                 user_text = m.content
+                break
+            # A turn with attachments: its text blocks, and a note per image so
+            # tests can see an image arrived.
+            if not any(b.get("type") == "tool_result" for b in m.content):
+                user_text = " ".join(
+                    b.get("text", "") if b.get("type") == "text"
+                    else f"[image {b.get('name', '')}]"
+                    for b in m.content
+                ).strip()
                 break
 
         tool_names = {t.name for t in tools}

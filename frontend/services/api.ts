@@ -7,6 +7,7 @@
 
 import type {
   Agent,
+  Attachment,
   AgentDraft,
   Conversation,
   HTTPTool,
@@ -27,6 +28,18 @@ import { adminKeyHeader } from "@/services/adminKey";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
+
+/**
+ * Where outside callers reach this deployment, for showing agents' public
+ * URLs. PUBLIC_BASE_URL on the backend wins; otherwise the backend's own
+ * address, which in the container build is the page's origin (the API is
+ * served same-origin there, and Caddy routes /v1 to the backend).
+ */
+export function resolvePublicBaseUrl(configured: string): string {
+  if (configured) return configured;
+  if (BASE_URL) return BASE_URL.replace(/\/$/, "");
+  return typeof window === "undefined" ? "" : window.location.origin;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -112,6 +125,30 @@ export const updateAgent = (id: string, patch: Partial<AgentDraft>) =>
 export const deleteAgent = (id: string) =>
   request<void>(`/api/agents/${id}`, { method: "DELETE" });
 
+/** Issue (or rotate) the key for the agent's public URL. Shown once. */
+export const issueAccessKey = (id: string) =>
+  request<{ access_key: string; access_key_hint: string }>(
+    `/api/agents/${id}/access-key`,
+    { method: "POST" },
+  );
+
+/** The agent's current access key, for showing in its settings. */
+export const revealAccessKey = (id: string) =>
+  request<{ access_key: string; access_key_hint: string }>(
+    `/api/agents/${id}/access-key/reveal`,
+    { method: "POST" },
+  );
+
+export const revokeAccessKey = (id: string) =>
+  request<void>(`/api/agents/${id}/access-key`, { method: "DELETE" });
+
+export const getMeta = () =>
+  request<{
+    public_base_url: string;
+    security_testing: boolean;
+    admin_key_required: boolean;
+  }>("/api/meta");
+
 export const listProviders = () =>
   request<ProviderInfo[]>("/api/agents/providers");
 
@@ -145,6 +182,39 @@ export const deleteConversation = (id: string) =>
 
 export const listMessages = (conversationId: string) =>
   request<Message[]>(`/api/conversations/${conversationId}/messages`);
+
+// -- attachments ------------------------------------------------------------
+
+/** Upload one file for the next message. Multipart, so not via request(). */
+export async function uploadAttachment(file: File): Promise<Attachment> {
+  const body = new FormData();
+  body.append("file", file);
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/api/attachments`, {
+      method: "POST",
+      // No Content-Type: the browser sets the multipart boundary itself.
+      headers: adminKeyHeader(),
+      body,
+    });
+  } catch {
+    throw new ApiError(`Cannot reach the backend at ${BASE_URL}.`, 0);
+  }
+  if (response.status === 401) {
+    throw new ApiError(
+      "Uploading needs the admin key. Add it with the lock in the sidebar.",
+      401,
+    );
+  }
+  if (!response.ok) {
+    throw new ApiError(await describeError(response), response.status);
+  }
+  return (await response.json()) as Attachment;
+}
+
+/** Where an image attachment's bytes are served, for display. */
+export const attachmentUrl = (id: string) =>
+  `${BASE_URL}/api/attachments/${id}/content`;
 
 // -- tools / MCP ------------------------------------------------------------
 
@@ -238,6 +308,7 @@ export interface StreamHandlers {
 export async function streamMessage(
   conversationId: string,
   content: string,
+  attachmentIds: string[],
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -248,7 +319,7 @@ export async function streamMessage(
       {
         method: "POST",
         headers: { "Content-Type": "application/json", ...adminKeyHeader() },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachment_ids: attachmentIds }),
         signal,
       },
     );

@@ -10,6 +10,7 @@ import { ToolsPanel } from "@/components/ToolsPanel";
 import * as api from "@/services/api";
 import type {
   Agent,
+  Attachment,
   AgentDraft,
   Conversation,
   MCPServer,
@@ -20,6 +21,17 @@ import type {
 } from "@/types";
 
 type Overlay = "none" | "agent-form" | "tools" | "security";
+
+// A sleeping backend (Render's free tier spins services down when idle) takes
+// up to a minute to wake, answering 502/503/504 or nothing at all meanwhile.
+// The first load retries through that instead of reporting an outage.
+const WAKE_STATUSES = new Set([0, 502, 503, 504]);
+const WAKE_TIMEOUT_MS = 120_000;
+const WAKE_RETRY_MS = 5_000;
+
+function isWaking(error: unknown): boolean {
+  return error instanceof api.ApiError && WAKE_STATUSES.has(error.status);
+}
 
 // Ids for optimistic messages that exist only until the server's `done` event
 // supplies the real one. A counter rather than a timestamp: two messages in the
@@ -33,6 +45,9 @@ export default function Home() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [tools, setTools] = useState<ToolDefinition[]>([]);
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([]);
+  const [publicBaseUrl, setPublicBaseUrl] = useState("");
+  const [securityTesting, setSecurityTesting] = useState(false);
+  const [adminKeyRequired, setAdminKeyRequired] = useState(true);
 
   // Selection.
   //
@@ -73,6 +88,7 @@ export default function Home() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [waking, setWaking] = useState(false);
 
   // Overlays
   const [overlay, setOverlay] = useState<Overlay>("none");
@@ -84,24 +100,52 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      api.listAgents(),
-      api.listProviders(),
-      api.listTools(),
-      api.listMCPServers(),
-    ])
-      .then(([agentList, providerList, toolList, serverList]) => {
-        if (cancelled) return;
-        setAgents(agentList);
-        setProviders(providerList);
-        setTools(toolList);
-        setMcpServers(serverList);
-        setAgent((current) => current ?? agentList[0] ?? null);
-      })
-      .catch((e) => !cancelled && setBootError((e as Error).message))
-      .finally(() => !cancelled && setLoading(false));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = Date.now() + WAKE_TIMEOUT_MS;
+
+    function load() {
+      Promise.all([
+        api.listAgents(),
+        api.listProviders(),
+        api.listTools(),
+        api.listMCPServers(),
+        // Optional: without it the URL falls back to the backend's address.
+        api
+          .getMeta()
+          .catch(() => ({
+            public_base_url: "",
+            security_testing: false,
+            admin_key_required: true,
+          })),
+      ])
+        .then(([agentList, providerList, toolList, serverList, meta]) => {
+          if (cancelled) return;
+          setPublicBaseUrl(api.resolvePublicBaseUrl(meta.public_base_url));
+          setSecurityTesting(meta.security_testing);
+          setAdminKeyRequired(meta.admin_key_required);
+          setAgents(agentList);
+          setProviders(providerList);
+          setTools(toolList);
+          setMcpServers(serverList);
+          setAgent((current) => current ?? agentList[0] ?? null);
+          setLoading(false);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          if (isWaking(e) && Date.now() < deadline) {
+            setWaking(true);
+            timer = setTimeout(load, WAKE_RETRY_MS);
+            return;
+          }
+          setBootError((e as Error).message);
+          setLoading(false);
+        });
+    }
+
+    load();
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, []);
 
@@ -137,7 +181,7 @@ export default function Home() {
 
   // -- chat -----------------------------------------------------------------
 
-  async function send(content: string) {
+  async function send(content: string, attachments: Attachment[] = []) {
     if (!agent) return;
     setChatError(null);
     setSending(true);
@@ -165,13 +209,13 @@ export default function Home() {
       conversation_id: targetId,
       role: "user",
       content,
-      meta: {},
+      meta: attachments.length ? { attachments } : {},
       created_at: new Date().toISOString(),
     };
     appendMessage(targetId, optimisticUser);
     setPending({ content: "", toolCalls: [] });
 
-    await api.streamMessage(targetId, content, {
+    await api.streamMessage(targetId, content, attachments.map((a) => a.id), {
       onToken: (text) =>
         setPending((p) => (p ? { ...p, content: p.content + text } : p)),
       onToolCall: (call) =>
@@ -225,6 +269,19 @@ export default function Home() {
     }
   }
 
+  /** A key was issued or revoked from the open form; refresh the agent. */
+  async function refreshAgents() {
+    try {
+      const agentList = await api.listAgents();
+      setAgents(agentList);
+      setAgent((current) =>
+        current ? (agentList.find((a) => a.id === current.id) ?? current) : current,
+      );
+    } catch {
+      /* the form already shows the change; the list catches up on next load */
+    }
+  }
+
   async function removeAgent(target: Agent) {
     if (
       !window.confirm(
@@ -262,7 +319,21 @@ export default function Home() {
   // -- render ---------------------------------------------------------------
 
   if (loading) {
-    return <Centered>Loading…</Centered>;
+    return (
+      <Centered>
+        {waking ? (
+          <div className="max-w-sm space-y-2 text-center">
+            <p className="font-medium text-slate-700">Starting the server…</p>
+            <p className="text-sm text-slate-500">
+              It sleeps when nobody has used it for a while, and takes up to a
+              minute to wake. This page will load by itself.
+            </p>
+          </div>
+        ) : (
+          "Loading…"
+        )}
+      </Centered>
+    );
   }
 
   if (bootError) {
@@ -272,7 +343,7 @@ export default function Home() {
           <p className="font-medium text-red-700">Cannot reach the backend</p>
           <p className="text-sm text-slate-600">{bootError}</p>
           <p className="text-xs text-slate-400">
-            Start it with{" "}
+            Reload to try again. Running locally? Start it with{" "}
             <code className="font-mono">
               uvicorn app.main:app --reload
             </code>{" "}
@@ -307,7 +378,10 @@ export default function Home() {
           setSelection({ agentId: c.agent_id, conversationId: c.id })
         }
         onOpenTools={() => setOverlay("tools")}
-        onOpenSecurity={() => setOverlay("security")}
+        onOpenSecurity={
+          securityTesting ? () => setOverlay("security") : undefined
+        }
+        adminKeyRequired={adminKeyRequired}
       />
 
       <main className="min-w-0 flex-1">
@@ -350,6 +424,8 @@ export default function Home() {
           saving={saving}
           error={formError}
           onSave={saveAgent}
+          publicBaseUrl={publicBaseUrl}
+          onAccessChanged={refreshAgents}
           onCancel={() => {
             setOverlay("none");
             setEditing(null);
@@ -375,7 +451,7 @@ export default function Home() {
         />
       )}
 
-      {overlay === "security" && (
+      {securityTesting && overlay === "security" && (
         <SecurityPanel
           agents={agents}
           selectedAgentId={agent?.id ?? null}

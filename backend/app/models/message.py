@@ -22,3 +22,9 @@ class Message(Base):
     conversation: Mapped["Conversation"] = relationship(  # noqa: F821
         back_populates="messages"
     )
+    # Deleted with the message, so a deleted conversation leaves no files.
+    # Done by the ORM rather than left to ON DELETE CASCADE, which SQLite
+    # only honours with foreign keys switched on.
+    attachments: Mapped[list["Attachment"]] = relationship(  # noqa: F821
+        cascade="all, delete-orphan"
+    )

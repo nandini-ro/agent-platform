@@ -1,4 +1,5 @@
 from app.models.agent import Agent
+from app.models.attachment import Attachment
 from app.models.conversation import Conversation
 from app.models.http_tool import HTTPTool
 from app.models.mcp_server import MCPServer
@@ -7,6 +8,7 @@ from app.models.security_run import SecurityRun
 
 __all__ = [
     "Agent",
+    "Attachment",
     "Conversation",
     "HTTPTool",
     "MCPServer",
