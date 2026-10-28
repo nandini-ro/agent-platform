@@ -286,43 +286,45 @@ export function AgentAccess({
               {curl}
             </pre>
           </div>
-
-          <div className="space-y-2 border-t border-slate-200 pt-3">
-            <div>
-              <span className="text-xs font-semibold text-slate-700">
-                E2E security testing
-              </span>
-              <p className="text-xs text-slate-500">
-                Paste these into a scanner&apos;s E2E application testing
-                settings to test this agent through its public URL.
-                {!issuedKey &&
-                  " Generate a key above to fill in <access-key>."}
-              </p>
-            </div>
-            {e2e.map((field) => (
-              <div key={field.label}>
-                <div className="mb-1 flex items-center">
-                  <span className="text-xs text-slate-600">{field.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => copy(field.label, field.value)}
-                    className="ml-auto text-xs text-slate-500 hover:text-slate-800"
-                  >
-                    {copied === field.label ? "Copied" : "Copy"}
-                  </button>
-                </div>
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800">
-                  {field.value}
-                </pre>
-              </div>
-            ))}
-          </div>
         </div>
       ) : (
         <p className="text-xs text-slate-500">
           Save the agent first, then generate its access key here.
         </p>
       )}
+
+      <div className="space-y-2 border-t border-slate-200 pt-3">
+        <div>
+          <span className="text-xs font-semibold text-slate-700">
+            E2E security testing
+          </span>
+          <p className="text-xs text-slate-500">
+            Paste these into a scanner&apos;s E2E application testing settings
+            to test this agent through its public URL.
+            {!issuedKey &&
+              (agent
+                ? " Generate a key above to fill in <access-key>."
+                : " <access-key> is filled in once the agent is saved and has a key.")}
+          </p>
+        </div>
+        {e2e.map((field) => (
+          <div key={field.label}>
+            <div className="mb-1 flex items-center">
+              <span className="text-xs text-slate-600">{field.label}</span>
+              <button
+                type="button"
+                onClick={() => copy(field.label, field.value)}
+                className="ml-auto text-xs text-slate-500 hover:text-slate-800"
+              >
+                {copied === field.label ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800">
+              {field.value}
+            </pre>
+          </div>
+        ))}
+      </div>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
