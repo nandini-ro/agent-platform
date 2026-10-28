@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { AgentAccess } from "@/components/AgentAccess";
+import { AgentAccess, newAccessKey } from "@/components/AgentAccess";
 import type {
   Agent,
   AgentDraft,
@@ -73,6 +73,11 @@ export function AgentForm({
   // The provider key lives only in this component's state until it is
   // submitted; the backend never sends a stored one back.
   const [apiKey, setApiKey] = useState("");
+  // A new agent's access key, made now so the API access section can show
+  // it before the agent is saved. Existing agents manage theirs in place.
+  const [draftAccessKey, setDraftAccessKey] = useState(() =>
+    agent ? "" : newAccessKey(),
+  );
   const [showKey, setShowKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
 
@@ -129,9 +134,12 @@ export function AgentForm({
             setKeyError(null);
             // A blank URL name is left out: derived on create, kept on update.
             const { slug, ...rest } = draft;
-            const base: AgentDraft = slug?.trim()
+            let base: AgentDraft = slug?.trim()
               ? { ...rest, slug: slug.trim() }
               : rest;
+            if (!agent && draftAccessKey.trim()) {
+              base = { ...base, access_key: draftAccessKey.trim() };
+            }
             // Blank means "keep the stored key", so it is not sent at all.
             onSave(acceptsKey && key ? { ...base, api_key: key } : base);
           }}
@@ -362,6 +370,8 @@ export function AgentForm({
             onSlugChange={(slug) => set("slug", slug)}
             publicBaseUrl={publicBaseUrl}
             onAccessChanged={onAccessChanged}
+            draftKey={draftAccessKey}
+            onDraftKeyChange={setDraftAccessKey}
           />
 
           {(keyError ?? error) && (

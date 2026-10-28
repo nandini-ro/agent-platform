@@ -67,10 +67,17 @@ def create_agent(payload: AgentCreate, db: Session = Depends(get_db)) -> Agent:
         _require_key(payload.provider)
     if payload.slug is not None:
         _check_slug(db, payload.slug)
+    access_key = (payload.access_key or "").strip()
+    if access_key:
+        _check_chosen_key(access_key)
     # The id is fixed up front because the ciphertext is bound to it.
-    agent = Agent(id=new_id(), **payload.model_dump(exclude={"api_key"}))
+    agent = Agent(
+        id=new_id(), **payload.model_dump(exclude={"api_key", "access_key"})
+    )
     if api_key is not None:
         _store_key(agent, api_key, payload.provider)
+    if access_key:
+        _set_access_key(agent, access_key)
     db.add(agent)
     db.commit()
     db.refresh(agent)
@@ -141,14 +148,25 @@ def issue_access_key(
     caller's own key if the body carries one, otherwise a generated one."""
     chosen = (body.access_key or "").strip() if body else ""
     if chosen:
-        problem = chosen_key_problem(chosen)
-        if problem:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
-        key, digest, hint = chosen, hash_access_key(chosen), hint_for(chosen)
+        _check_chosen_key(chosen)
+        key = chosen
     else:
-        key, digest, hint = generate_access_key()
-    agent.access_key_hash = digest
-    agent.access_key_hint = hint
+        key, _, _ = generate_access_key()
+    _set_access_key(agent, key)
+    db.add(agent)
+    db.commit()
+    return AccessKeyIssued(access_key=key, access_key_hint=agent.access_key_hint)
+
+
+def _check_chosen_key(key: str) -> None:
+    problem = chosen_key_problem(key)
+    if problem:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
+
+
+def _set_access_key(agent: Agent, key: str) -> None:
+    agent.access_key_hash = hash_access_key(key)
+    agent.access_key_hint = hint_for(key)
     try:
         agent.access_key_encrypted = encrypt_api_key(
             key, agent_id=agent.id, provider=_ACCESS_KEY_SCOPE
@@ -157,9 +175,6 @@ def issue_access_key(
         # No encryption key configured: the key still works, it just cannot
         # be shown again after this response.
         agent.access_key_encrypted = None
-    db.add(agent)
-    db.commit()
-    return AccessKeyIssued(access_key=key, access_key_hint=hint)
 
 
 @router.delete("/{agent_id}/access-key", status_code=status.HTTP_204_NO_CONTENT)

@@ -246,3 +246,19 @@ def test_weak_or_malformed_chosen_keys_are_rejected(client, agent_payload, bad):
     )
     assert response.status_code == 422
     assert client.get(f"/api/agents/{agent['id']}").json()["has_access_key"] is False
+
+
+def test_an_agent_can_be_created_with_its_key(client, agent_payload):
+    agent = _create(client, agent_payload, access_key=OWN_KEY)
+    assert agent["has_access_key"] is True
+    assert "access_key" not in agent
+    assert _chat(client, agent["slug"], OWN_KEY).status_code == 200
+    shown = client.post(f"/api/agents/{agent['id']}/access-key/reveal").json()
+    assert shown["access_key"] == OWN_KEY
+
+
+def test_a_weak_key_on_create_creates_nothing(client, agent_payload):
+    before = len(client.get("/api/agents").json())
+    response = client.post("/api/agents", json={**agent_payload, "access_key": "short"})
+    assert response.status_code == 422
+    assert len(client.get("/api/agents").json()) == before

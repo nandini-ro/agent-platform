@@ -39,6 +39,8 @@ export type AgentDraft = Omit<
   api_key?: string;
   /** Omitted derives one from the name on create, and keeps the current one on update. */
   slug?: string;
+  /** Create only: the agent's access key, made in the browser so the form can show it. */
+  access_key?: string;
 };
 
 export interface ProviderInfo {

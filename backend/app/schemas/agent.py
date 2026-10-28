@@ -40,6 +40,9 @@ class AgentCreate(AgentBase):
     api_key: SecretStr | None = None
     # The public URL name. Absent derives one from the agent's name.
     slug: str | None = None
+    # The key for that URL, so it can be shown before the agent exists.
+    # Absent leaves the URL closed until a key is issued.
+    access_key: str | None = None
 
 
 class AgentUpdate(BaseModel):

@@ -12,6 +12,16 @@ interface AgentAccessProps {
   publicBaseUrl: string;
   /** A key was issued or revoked, so the parent's copy of the agent is stale. */
   onAccessChanged: () => void;
+  /** Creating only: the key the agent will be saved with. */
+  draftKey: string;
+  onDraftKeyChange: (key: string) => void;
+}
+
+/** A key in the same form the backend generates: agk_ + 32 random bytes. */
+export function newAccessKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const b64 = btoa(String.fromCharCode(...bytes));
+  return "agk_" + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**
@@ -27,6 +37,8 @@ export function AgentAccess({
   onSlugChange,
   publicBaseUrl,
   onAccessChanged,
+  draftKey,
+  onDraftKeyChange,
 }: AgentAccessProps) {
   const [hasKey, setHasKey] = useState(agent?.has_access_key ?? false);
   const [hint, setHint] = useState(agent?.access_key_hint ?? null);
@@ -56,6 +68,8 @@ export function AgentAccess({
 
   const shownSlug = slug.trim() || agent?.slug || "<from-agent-name>";
   const url = `${publicBaseUrl}/v1/agents/${shownSlug}/chat`;
+  // The key the examples below show: the saved agent's, or the new one.
+  const shownKey = agent ? issuedKey : draftKey.trim() || null;
   const slugPending = Boolean(agent && slug.trim() && slug.trim() !== agent.slug);
   // Values for an external scanner's "E2E Application Testing" form. $INPUT
   // is where the scanner puts each test prompt; $.response is the reply text
@@ -66,7 +80,7 @@ export function AgentAccess({
       label: "Auth Headers (JSON)",
       value: JSON.stringify(
         {
-          Authorization: `Bearer ${issuedKey ?? "<access-key>"}`,
+          Authorization: `Bearer ${shownKey ?? "<access-key>"}`,
           "Content-Type": "application/json",
         },
         null,
@@ -82,7 +96,7 @@ export function AgentAccess({
 
   const curl = [
     `curl -X POST ${url} \\`,
-    `  -H "Authorization: Bearer ${issuedKey ?? "<access-key>"}" \\`,
+    `  -H "Authorization: Bearer ${shownKey ?? "<access-key>"}" \\`,
     `  -H "Content-Type: application/json" \\`,
     `  -d '{"message": "Hello"}'`,
   ].join("\n");
@@ -288,9 +302,36 @@ export function AgentAccess({
           </div>
         </div>
       ) : (
-        <p className="text-xs text-slate-500">
-          Save the agent first, then generate its access key here.
-        </p>
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-slate-700">
+            Access key{" "}
+            <span className="font-normal text-slate-500">
+              - saved with the agent. Keep it, or paste your own (24+
+              characters).
+            </span>
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={draftKey}
+              onChange={(e) => onDraftKeyChange(e.target.value)}
+              placeholder="Leave empty to create the agent without a key"
+              spellCheck={false}
+              autoComplete="off"
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-slate-500"
+            />
+            <button
+              type="button"
+              onClick={() => onDraftKeyChange(newAccessKey())}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-100"
+            >
+              New
+            </button>
+            <CopyButton
+              label={copied === "key" ? "Copied" : "Copy"}
+              onClick={() => copy("key", draftKey)}
+            />
+          </div>
+        </div>
       )}
 
       <div className="space-y-2 border-t border-slate-200 pt-3">
@@ -301,10 +342,7 @@ export function AgentAccess({
           <p className="text-xs text-slate-500">
             Paste these into a scanner&apos;s E2E application testing settings
             to test this agent through its public URL.
-            {!issuedKey &&
-              (agent
-                ? " Generate a key above to fill in <access-key>."
-                : " <access-key> is filled in once the agent is saved and has a key.")}
+            {!shownKey && " Set a key above to fill in <access-key>."}
           </p>
         </div>
         {e2e.map((field) => (
