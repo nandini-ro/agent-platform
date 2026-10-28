@@ -22,12 +22,19 @@ from app.db.session import get_db
 from app.models.agent import Agent
 from app.schemas.agent import (
     AccessKeyIssued,
+    AccessKeySet,
     AgentCreate,
     AgentRead,
     AgentUpdate,
     ProviderInfo,
 )
-from app.services.agent_access import generate_access_key, slug_problem
+from app.services.agent_access import (
+    chosen_key_problem,
+    generate_access_key,
+    hash_access_key,
+    hint_for,
+    slug_problem,
+)
 from app.services.credentials import (
     CredentialError,
     clean_api_key,
@@ -126,10 +133,20 @@ def delete_agent(
     status_code=status.HTTP_201_CREATED,
 )
 def issue_access_key(
-    agent: Agent = Depends(get_agent_or_404), db: Session = Depends(get_db)
+    body: AccessKeySet | None = None,
+    agent: Agent = Depends(get_agent_or_404),
+    db: Session = Depends(get_db),
 ) -> AccessKeyIssued:
-    """Generate the key for this agent's public URL, replacing any old one."""
-    key, digest, hint = generate_access_key()
+    """Set the key for this agent's public URL, replacing any old one: the
+    caller's own key if the body carries one, otherwise a generated one."""
+    chosen = (body.access_key or "").strip() if body else ""
+    if chosen:
+        problem = chosen_key_problem(chosen)
+        if problem:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+        key, digest, hint = chosen, hash_access_key(chosen), hint_for(chosen)
+    else:
+        key, digest, hint = generate_access_key()
     agent.access_key_hash = digest
     agent.access_key_hint = hint
     try:

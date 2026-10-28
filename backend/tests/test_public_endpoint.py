@@ -203,3 +203,46 @@ def test_revealing_needs_the_admin_key_when_one_is_enforced(client, keyed, agent
     url = f"/api/agents/{created['id']}/access-key/reveal"
     assert client.post(url).status_code == 401
     assert client.post(url, headers=admin).status_code == 200
+
+
+# -- a key the user chose ---------------------------------------------------
+
+OWN_KEY = "my-own-chosen-key_0123456789abcdef"
+
+
+def test_a_chosen_key_is_used_as_given(client, agent_payload):
+    agent = _create(client, agent_payload)
+    response = client.post(
+        f"/api/agents/{agent['id']}/access-key", json={"access_key": f"  {OWN_KEY} "}
+    )
+    assert response.status_code == 201, response.text
+    assert response.json() == {"access_key": OWN_KEY, "access_key_hint": OWN_KEY[:8]}
+    assert _chat(client, agent["slug"], OWN_KEY).status_code == 200
+    shown = client.post(f"/api/agents/{agent['id']}/access-key/reveal").json()
+    assert shown["access_key"] == OWN_KEY
+
+
+def test_choosing_a_key_retires_the_old_one(client, agent_payload):
+    agent = _create(client, agent_payload)
+    old = _issue(client, agent["id"])
+    client.post(f"/api/agents/{agent['id']}/access-key", json={"access_key": OWN_KEY})
+    assert _chat(client, agent["slug"], old).status_code == 401
+
+
+def test_an_empty_chosen_key_generates_one(client, agent_payload):
+    agent = _create(client, agent_payload)
+    response = client.post(
+        f"/api/agents/{agent['id']}/access-key", json={"access_key": "  "}
+    )
+    assert response.status_code == 201
+    assert response.json()["access_key"].startswith("agk_")
+
+
+@pytest.mark.parametrize("bad", ["short-key", "has spaces in it but is long enough", "x" * 201])
+def test_weak_or_malformed_chosen_keys_are_rejected(client, agent_payload, bad):
+    agent = _create(client, agent_payload)
+    response = client.post(
+        f"/api/agents/{agent['id']}/access-key", json={"access_key": bad}
+    )
+    assert response.status_code == 422
+    assert client.get(f"/api/agents/{agent['id']}").json()["has_access_key"] is False

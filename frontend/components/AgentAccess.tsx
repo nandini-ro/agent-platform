@@ -37,6 +37,8 @@ export function AgentAccess({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // A key the user wants to use instead of a generated one.
+  const [ownKey, setOwnKey] = useState("");
 
   const agentId = agent?.id;
   const initiallyHasKey = agent?.has_access_key ?? false;
@@ -85,12 +87,14 @@ export function AgentAccess({
     `  -d '{"message": "Hello"}'`,
   ].join("\n");
 
-  async function issue() {
+  async function issue(chosenKey?: string) {
     if (!agent) return;
     if (
       hasKey &&
       !window.confirm(
-        "Generate a new key? The current key stops working immediately.",
+        chosenKey
+          ? "Use this key? The current key stops working immediately."
+          : "Generate a new key? The current key stops working immediately.",
       )
     ) {
       return;
@@ -98,8 +102,9 @@ export function AgentAccess({
     setBusy(true);
     setError(null);
     try {
-      const issued = await api.issueAccessKey(agent.id);
+      const issued = await api.issueAccessKey(agent.id, chosenKey);
       setIssuedKey(issued.access_key);
+      setOwnKey("");
       setKeyNote(null);
       setHint(issued.access_key_hint);
       setHasKey(true);
@@ -211,12 +216,31 @@ export function AgentAccess({
               <button
                 type="button"
                 disabled={busy}
-                onClick={issue}
+                onClick={() => issue()}
                 className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-300"
               >
                 {hasKey ? "Rotate key" : "Generate key"}
               </button>
             </div>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              value={ownKey}
+              onChange={(e) => setOwnKey(e.target.value)}
+              placeholder="Or paste your own key (24+ characters)"
+              spellCheck={false}
+              autoComplete="off"
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-slate-500"
+            />
+            <button
+              type="button"
+              disabled={busy || !ownKey.trim()}
+              onClick={() => issue(ownKey.trim())}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+            >
+              Use this key
+            </button>
           </div>
 
           {hasKey && !issuedKey && keyNote && (

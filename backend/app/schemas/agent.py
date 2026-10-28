@@ -80,8 +80,14 @@ class AgentRead(AgentBase):
     updated_at: datetime
 
 
+class AccessKeySet(BaseModel):
+    """Body of POST /access-key. Without `access_key` a key is generated."""
+
+    access_key: str | None = None
+
+
 class AccessKeyIssued(BaseModel):
-    """Returned once, when a key is generated. It cannot be read back."""
+    """The agent's current key, returned when it is set or revealed."""
 
     access_key: str
     access_key_hint: str

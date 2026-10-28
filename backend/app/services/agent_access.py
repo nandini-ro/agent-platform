@@ -60,7 +60,29 @@ def first_free_slug(base: str, taken: set[str]) -> str:
 def generate_access_key() -> tuple[str, str, str]:
     """A new key as (plaintext, digest to store, hint safe to display)."""
     key = ACCESS_KEY_PREFIX + secrets.token_urlsafe(32)
-    return key, hash_access_key(key), key[: len(ACCESS_KEY_PREFIX) + 4]
+    return key, hash_access_key(key), hint_for(key)
+
+
+_CHOSEN_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.~-]{24,200}$")
+HINT_LENGTH = len(ACCESS_KEY_PREFIX) + 4
+
+
+def chosen_key_problem(key: str) -> str | None:
+    """Why a key the user typed in is unusable, or None if it is fine.
+
+    The length floor keeps a chosen key out of reach of guessing: 24 URL-safe
+    characters is still over 140 bits. Generated keys are 47.
+    """
+    if not _CHOSEN_KEY_PATTERN.match(key):
+        return (
+            "The access key must be 24-200 characters of letters, digits, "
+            "'-', '_', '.' or '~'."
+        )
+    return None
+
+
+def hint_for(key: str) -> str:
+    return key[:HINT_LENGTH]
 
 
 def hash_access_key(key: str) -> str:
