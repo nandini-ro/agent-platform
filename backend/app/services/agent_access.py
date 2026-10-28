@@ -5,10 +5,11 @@ belongs to that agent alone. It is deliberately not the admin key: an access
 key lets its holder talk to one agent and nothing else - it cannot change any
 configuration, register an MCP server, or reach a different agent.
 
-Only a SHA-256 digest of the key is stored. That is enough here, unlike for a
-password, because the key is 256 bits of randomness: there is nothing to
-brute-force, so a slow hash would buy nothing. The plaintext is returned
-exactly once, when the key is issued.
+Calls are checked against a SHA-256 digest of the key. That is enough here,
+unlike for a password, because the key is 256 bits of randomness: there is
+nothing to brute-force, so a slow hash would buy nothing. A copy encrypted
+under CREDENTIAL_ENCRYPTION_KEY is kept as well, so the agent's settings can
+show the key again rather than only once.
 """
 
 from __future__ import annotations

@@ -132,6 +132,13 @@ export const issueAccessKey = (id: string) =>
     { method: "POST" },
   );
 
+/** The agent's current access key, for showing in its settings. */
+export const revealAccessKey = (id: string) =>
+  request<{ access_key: string; access_key_hint: string }>(
+    `/api/agents/${id}/access-key/reveal`,
+    { method: "POST" },
+  );
+
 export const revokeAccessKey = (id: string) =>
   request<void>(`/api/agents/${id}/access-key`, { method: "DELETE" });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import * as api from "@/services/api";
 import type { Agent } from "@/types";
@@ -30,11 +30,27 @@ export function AgentAccess({
 }: AgentAccessProps) {
   const [hasKey, setHasKey] = useState(agent?.has_access_key ?? false);
   const [hint, setHint] = useState(agent?.access_key_hint ?? null);
-  // Held only until the form closes; it cannot be fetched again.
+  // The current key, fetched when the panel opens or returned on rotation.
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
+  // Why a key that exists cannot be shown (one issued before keys were kept).
+  const [keyNote, setKeyNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+
+  const agentId = agent?.id;
+  const initiallyHasKey = agent?.has_access_key ?? false;
+  useEffect(() => {
+    if (!agentId || !initiallyHasKey) return;
+    let cancelled = false;
+    api
+      .revealAccessKey(agentId)
+      .then((shown) => !cancelled && setIssuedKey(shown.access_key))
+      .catch((e) => !cancelled && setKeyNote((e as Error).message));
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, initiallyHasKey]);
 
   const shownSlug = slug.trim() || agent?.slug || "<from-agent-name>";
   const url = `${publicBaseUrl}/v1/agents/${shownSlug}/chat`;
@@ -84,6 +100,7 @@ export function AgentAccess({
     try {
       const issued = await api.issueAccessKey(agent.id);
       setIssuedKey(issued.access_key);
+      setKeyNote(null);
       setHint(issued.access_key_hint);
       setHasKey(true);
       onAccessChanged();
@@ -202,13 +219,22 @@ export function AgentAccess({
             </div>
           </div>
 
+          {hasKey && !issuedKey && keyNote && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {keyNote}
+            </p>
+          )}
+
           {issuedKey && (
-            <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 p-3">
-              <p className="text-xs font-semibold text-amber-900">
-                Copy this key now - it will not be shown again.
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-slate-700">
+                Access key{" "}
+                <span className="font-normal text-slate-500">
+                  - keep it private; rotate it if it leaks.
+                </span>
               </p>
               <div className="flex gap-2">
-                <code className="min-w-0 flex-1 break-all rounded border border-amber-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-800">
+                <code className="min-w-0 flex-1 break-all rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-800">
                   {issuedKey}
                 </code>
                 <CopyButton
@@ -246,7 +272,7 @@ export function AgentAccess({
                 Paste these into a scanner&apos;s E2E application testing
                 settings to test this agent through its public URL.
                 {!issuedKey &&
-                  " Replace <access-key> with this agent's key - it is only shown when generated, so rotate it if you no longer have it."}
+                  " Generate a key above to fill in <access-key>."}
               </p>
             </div>
             {e2e.map((field) => (

@@ -45,10 +45,13 @@ class Agent(Base):
         String(80), nullable=True, unique=True, index=True
     )
 
-    # The key for that public address (app/services/agent_access.py). Only a
-    # digest is stored; the hint is the key's first characters, for display.
+    # The key for that public address (app/services/agent_access.py). Calls
+    # are checked against the digest; the hint is the key's first characters.
     access_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     access_key_hint: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The same key encrypted like provider keys, so the agent's settings can
+    # show it again. Null for keys issued before this existed.
+    access_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = created_column()
     updated_at: Mapped[datetime] = updated_column()

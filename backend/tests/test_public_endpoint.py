@@ -176,3 +176,30 @@ def test_meta_reports_the_public_base_url(client, monkeypatch):
     assert client.get("/api/meta").json()["public_base_url"] == (
         "https://agents.example.com"
     )
+
+
+def test_the_key_can_be_shown_again_and_still_works(client, agent_payload):
+    agent = _create(client, agent_payload)
+    key = _issue(client, agent["id"])
+    shown = client.post(f"/api/agents/{agent['id']}/access-key/reveal")
+    assert shown.status_code == 200
+    assert shown.json()["access_key"] == key
+    assert _chat(client, agent["slug"], shown.json()["access_key"]).status_code == 200
+    # Reads of the agent itself still never carry it.
+    assert key not in client.get(f"/api/agents/{agent['id']}").text
+
+
+def test_reveal_after_revoke_is_404(client, agent_payload):
+    agent = _create(client, agent_payload)
+    _issue(client, agent["id"])
+    client.delete(f"/api/agents/{agent['id']}/access-key")
+    assert client.post(f"/api/agents/{agent['id']}/access-key/reveal").status_code == 404
+
+
+def test_revealing_needs_the_admin_key_when_one_is_enforced(client, keyed, agent_payload):
+    admin = {"X-API-Key": ADMIN}
+    created = client.post("/api/agents", json=agent_payload, headers=admin).json()
+    _issue(client, created["id"], headers=admin)
+    url = f"/api/agents/{created['id']}/access-key/reveal"
+    assert client.post(url).status_code == 401
+    assert client.post(url, headers=admin).status_code == 200

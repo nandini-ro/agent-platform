@@ -28,7 +28,12 @@ from app.schemas.agent import (
     ProviderInfo,
 )
 from app.services.agent_access import generate_access_key, slug_problem
-from app.services.credentials import CredentialError, clean_api_key, encrypt_api_key
+from app.services.credentials import (
+    CredentialError,
+    clean_api_key,
+    decrypt_api_key,
+    encrypt_api_key,
+)
 from app.services.llm.registry import list_providers, provider_class
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -123,14 +128,18 @@ def delete_agent(
 def issue_access_key(
     agent: Agent = Depends(get_agent_or_404), db: Session = Depends(get_db)
 ) -> AccessKeyIssued:
-    """Generate the key for this agent's public URL, replacing any old one.
-
-    The plaintext is in this response and nowhere else - it cannot be read
-    back, so a lost key is replaced rather than recovered.
-    """
+    """Generate the key for this agent's public URL, replacing any old one."""
     key, digest, hint = generate_access_key()
     agent.access_key_hash = digest
     agent.access_key_hint = hint
+    try:
+        agent.access_key_encrypted = encrypt_api_key(
+            key, agent_id=agent.id, provider=_ACCESS_KEY_SCOPE
+        )
+    except CredentialError:
+        # No encryption key configured: the key still works, it just cannot
+        # be shown again after this response.
+        agent.access_key_encrypted = None
     db.add(agent)
     db.commit()
     return AccessKeyIssued(access_key=key, access_key_hint=hint)
@@ -143,9 +152,37 @@ def revoke_access_key(
     """Close the public URL. It refuses every call until a new key is issued."""
     agent.access_key_hash = None
     agent.access_key_hint = None
+    agent.access_key_encrypted = None
     db.add(agent)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# Bound into the ciphertext, so an access key can never be decrypted as a
+# provider key or the other way round.
+_ACCESS_KEY_SCOPE = "public-access-key"
+
+
+# A POST rather than a GET on purpose: the admin key gate covers writes only,
+# and showing a secret must be gated whenever writes are.
+@router.post("/{agent_id}/access-key/reveal", response_model=AccessKeyIssued)
+def reveal_access_key(agent: Agent = Depends(get_agent_or_404)) -> AccessKeyIssued:
+    """The current access key, for showing in the agent's settings."""
+    if not agent.has_access_key:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This agent has no access key.")
+    if not agent.access_key_encrypted:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This key was issued before keys could be shown again. Rotate it "
+            "to get one that can be.",
+        )
+    try:
+        key = decrypt_api_key(
+            agent.access_key_encrypted, agent_id=agent.id, provider=_ACCESS_KEY_SCOPE
+        )
+    except CredentialError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    return AccessKeyIssued(access_key=key, access_key_hint=agent.access_key_hint or "")
 
 
 def _check_slug(db: Session, slug: str, exclude_id: str | None = None) -> None:
