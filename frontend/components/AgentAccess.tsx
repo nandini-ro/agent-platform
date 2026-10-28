@@ -39,6 +39,29 @@ export function AgentAccess({
   const shownSlug = slug.trim() || agent?.slug || "<from-agent-name>";
   const url = `${publicBaseUrl}/v1/agents/${shownSlug}/chat`;
   const slugPending = Boolean(agent && slug.trim() && slug.trim() !== agent.slug);
+  // Values for an external scanner's "E2E Application Testing" form. $INPUT
+  // is where the scanner puts each test prompt; $.response is the reply text
+  // in this endpoint's JSON (see AgentChatResponse in the backend).
+  const e2e = [
+    { label: "Application Endpoint URL", value: url },
+    {
+      label: "Auth Headers (JSON)",
+      value: JSON.stringify(
+        {
+          Authorization: `Bearer ${issuedKey ?? "<access-key>"}`,
+          "Content-Type": "application/json",
+        },
+        null,
+        2,
+      ),
+    },
+    {
+      label: "Request Template (JSON)",
+      value: JSON.stringify({ message: "$INPUT" }, null, 2),
+    },
+    { label: "Response JSON Path", value: "$.response" },
+  ];
+
   const curl = [
     `curl -X POST ${url} \\`,
     `  -H "Authorization: Bearer ${issuedKey ?? "<access-key>"}" \\`,
@@ -212,6 +235,37 @@ export function AgentAccess({
             <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs leading-relaxed text-slate-100">
               {curl}
             </pre>
+          </div>
+
+          <div className="space-y-2 border-t border-slate-200 pt-3">
+            <div>
+              <span className="text-xs font-semibold text-slate-700">
+                E2E security testing
+              </span>
+              <p className="text-xs text-slate-500">
+                Paste these into a scanner&apos;s E2E application testing
+                settings to test this agent through its public URL.
+                {!issuedKey &&
+                  " Replace <access-key> with this agent's key - it is only shown when generated, so rotate it if you no longer have it."}
+              </p>
+            </div>
+            {e2e.map((field) => (
+              <div key={field.label}>
+                <div className="mb-1 flex items-center">
+                  <span className="text-xs text-slate-600">{field.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => copy(field.label, field.value)}
+                    className="ml-auto text-xs text-slate-500 hover:text-slate-800"
+                  >
+                    {copied === field.label ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800">
+                  {field.value}
+                </pre>
+              </div>
+            ))}
           </div>
         </div>
       ) : (

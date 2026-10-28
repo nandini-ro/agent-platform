@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Shared secret for POST /api/agents/{id}/chat. When unset the endpoint is
     # open, which is fine for a local POC but should be set for any shared host.
     agent_api_key: str | None = None
+    # The key above is enforced only when this is true. Off by default, so a
+    # deployment is open unless it opts in; docker-compose.yml opts in. Open
+    # means anyone who reaches the API can change anything - including adding
+    # an MCP server, whose command this process then runs.
+    admin_key_enabled: bool = False
 
     # The address the outside world reaches this deployment on, e.g.
     # https://agents.example.com. Used only to show each agent's public URL
@@ -93,6 +98,11 @@ class Settings(BaseSettings):
             if value.startswith(prefix):
                 return "postgresql+psycopg://" + value[len(prefix):]
         return value
+
+    @property
+    def admin_key(self) -> str | None:
+        """The admin key to enforce, or None when writes are open."""
+        return self.agent_api_key if self.admin_key_enabled else None
 
     @property
     def http_tool_allowed_host_list(self) -> list[str]:

@@ -36,11 +36,11 @@ services:
       # points it at the psycopg driver itself.
       - key: DATABASE_URL
         sync: false
-      # No AGENT_API_KEY: every write under /api is open to anyone who can
-      # reach the URL, including adding MCP servers (which run commands on
-      # this service) and spending the agents' provider keys. To lock it
-      # again, add AGENT_API_KEY with a long random value; the UI then shows
-      # an "Add key" control for entering it.
+      # No admin key: every write under /api is open to anyone who can reach
+      # the URL, including adding MCP servers (which run commands on this
+      # service) and spending the agents' provider keys. To lock it, add
+      # AGENT_API_KEY with a long random value and ADMIN_KEY_ENABLED=true;
+      # the UI then shows an "Add key" control for entering it.
       # Encrypts each agent's provider key at rest. Render generates a
       # base64-encoded 256-bit value, which is exactly the format required.
       # Never change it once agents have keys saved: they become unreadable.

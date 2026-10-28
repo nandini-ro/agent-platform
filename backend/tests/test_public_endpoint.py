@@ -143,6 +143,7 @@ def test_unknown_agent_is_404(client):
 @pytest.fixture
 def keyed(monkeypatch):
     monkeypatch.setattr(main.settings, "agent_api_key", ADMIN)
+    monkeypatch.setattr(main.settings, "admin_key_enabled", True)
 
 
 def test_issuing_a_key_needs_the_admin_key(client, keyed, agent_payload):

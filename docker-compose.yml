@@ -28,6 +28,8 @@ services:
       # Fails the stack fast if it is missing, rather than starting an API
       # whose writes are open to anyone who finds it.
       AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env - see .env.example}
+      # The key is enforced only when this is on; this deployment keeps it on.
+      ADMIN_KEY_ENABLED: "true"
       # Encrypts each agent's provider API key at rest.
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?set CREDENTIAL_ENCRYPTION_KEY in .env - see .env.example}
       # The volume below, not the image layer.

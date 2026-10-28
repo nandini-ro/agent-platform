@@ -214,7 +214,9 @@ no application code changes. You will also want Alembic at that point.
 
 ## What is still open
 
-`AGENT_API_KEY` guards every `POST`/`PUT`/`PATCH`/`DELETE` under `/api`,
+`AGENT_API_KEY` guards every `POST`/`PUT`/`PATCH`/`DELETE` under `/api`
+when `ADMIN_KEY_ENABLED=true` (this compose file sets it; a deployment that
+does not, such as the Render Blueprint, leaves writes open),
 enforced in [`main.py`](../backend/app/main.py) as middleware rather than route
 by route, so a new endpoint is covered the day it is written.
 

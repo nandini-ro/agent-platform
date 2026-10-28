@@ -55,7 +55,8 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 async def require_admin_key(request: Request, call_next):
     """Require AGENT_API_KEY on any state-changing /api request.
 
-    With the key unset this is a no-op, so a local checkout stays frictionless.
+    Only with ADMIN_KEY_ENABLED=true. Otherwise, or with the key unset, this
+    is a no-op, so a local checkout stays frictionless.
     Once set it is the line between "reads the demo" and "runs a command on
     this host", which is why it is enforced here rather than route by route: a
     new endpoint is covered the moment it is written, instead of whenever
@@ -66,7 +67,7 @@ async def require_admin_key(request: Request, call_next):
     request. Put the whole app behind a proxy or a private network if the
     configuration itself is sensitive.
     """
-    expected = settings.agent_api_key
+    expected = settings.admin_key
     if (
         expected
         and request.method in _MUTATING_METHODS
@@ -108,5 +109,5 @@ def meta() -> dict:
         "security_testing": settings.security_testing_enabled,
         # False when AGENT_API_KEY is unset: every write is open, and the UI
         # hides its admin-key control.
-        "admin_key_required": bool(settings.agent_api_key),
+        "admin_key_required": bool(settings.admin_key),
     }
