@@ -275,8 +275,11 @@ class OpenAIProvider(BaseLLMProvider):
 
         text_parts: list[str] = []
         # Tool calls stream in fragments keyed by index: the id and name arrive
-        # once, then the arguments accumulate across chunks.
-        partial: dict[int, dict[str, Any]] = {}
+        # once, then the arguments accumulate across chunks. Gemini's compatible
+        # endpoint sends every call at index 0, each with its own id, so a new
+        # id at an index already in use starts a new call.
+        slots: list[dict[str, Any]] = []
+        current: dict[Any, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: Any = None
 
@@ -298,25 +301,32 @@ class OpenAIProvider(BaseLLMProvider):
                 yield StreamEvent(type="text", text=delta.content)
 
             for tc in delta.tool_calls or []:
-                slot = partial.setdefault(
-                    tc.index, {"id": None, "name": None, "arguments": ""}
-                )
+                slot = current.get(tc.index)
+                if slot is None or (tc.id and slot["id"] and tc.id != slot["id"]):
+                    slot = {"id": None, "name": None, "arguments": "", "extra": None}
+                    slots.append(slot)
+                    current[tc.index] = slot
                 if tc.id:
                     slot["id"] = tc.id
                 if tc.function and tc.function.name:
                     slot["name"] = tc.function.name
                 if tc.function and tc.function.arguments:
                     slot["arguments"] += tc.function.arguments
+                # Gemini's thought signature; it must be echoed back with the
+                # call or the next request is refused.
+                extra = (getattr(tc, "model_extra", None) or {}).get("extra_content")
+                if extra:
+                    slot["extra"] = extra
 
         text = "".join(text_parts)
+        named = [slot for slot in slots if slot["name"]]
         tool_calls = [
             ToolCall(
-                id=slot["id"] or f"call_{index}",
-                name=slot["name"] or "",
+                id=slot["id"] or f"call_{position}",
+                name=slot["name"],
                 arguments=self._parse_arguments(slot["arguments"]),
             )
-            for index, slot in sorted(partial.items())
-            if slot["name"]
+            for position, slot in enumerate(named)
         ]
         # Rebuild the assistant turn for replay, matching the non-streaming shape.
         raw_content: dict[str, Any] = {"role": "assistant"}
@@ -328,8 +338,9 @@ class OpenAIProvider(BaseLLMProvider):
                     "id": c.id,
                     "type": "function",
                     "function": {"name": c.name, "arguments": json.dumps(c.arguments)},
+                    **({"extra_content": slot["extra"]} if slot["extra"] else {}),
                 }
-                for c in tool_calls
+                for c, slot in zip(tool_calls, named)
             ]
 
         yield StreamEvent(

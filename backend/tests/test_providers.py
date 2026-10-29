@@ -513,6 +513,7 @@ def _chunk(content=None, tool_calls=None, finish_reason=None, usage=None):
             function=SimpleNamespace(
                 name=tc.get("name"), arguments=tc.get("arguments")
             ),
+            model_extra={"extra_content": tc["extra"]} if "extra" in tc else {},
         )
         for tc in (tool_calls or [])
     ]
@@ -619,6 +620,35 @@ async def test_openai_reassembles_parallel_tool_calls_by_index(openai_provider):
     ]
     calls = events[-1].response.tool_calls
     assert [(c.id, c.name) for c in calls] == [("a", "calculator"), ("b", "current_time")]
+
+
+@pytest.mark.asyncio
+async def test_openai_separates_parallel_calls_that_share_an_index(openai_provider):
+    """Gemini's compatible endpoint sends every call at index 0, each with its
+    own id, and a thought signature that must be replayed with the call."""
+    signature = {"google": {"thought_signature": "sig"}}
+    _stub_openai_client(
+        openai_provider,
+        [
+            _chunk(tool_calls=[{"index": 0, "id": "a", "name": "calculator", "arguments": '{"expression":"1+1"}', "extra": signature}]),
+            _chunk(tool_calls=[{"index": 0, "id": "b", "name": "current_time", "arguments": "{}"}]),
+            _chunk(finish_reason="tool_calls"),
+        ],
+    )
+    events = [
+        e
+        async for e in openai_provider.stream(
+            model="gemini-3-flash", system="", messages=[LLMMessage("user", "go")]
+        )
+    ]
+    response = events[-1].response
+    assert [(c.id, c.name, c.arguments) for c in response.tool_calls] == [
+        ("a", "calculator", {"expression": "1+1"}),
+        ("b", "current_time", {}),
+    ]
+    replayed = response.raw_content["tool_calls"]
+    assert replayed[0]["extra_content"] == signature
+    assert "extra_content" not in replayed[1]
 
 
 class _FakeGeminiStream:
