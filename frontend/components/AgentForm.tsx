@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 
-import { AgentAccess, newAccessKey } from "@/components/AgentAccess";
+import {
+  AgentAccess,
+  isUsableAccessKey,
+  newAccessKey,
+} from "@/components/AgentAccess";
 import type {
   Agent,
   AgentDraft,
@@ -86,6 +90,9 @@ export function AgentForm({
   const acceptsKey = provider?.accepts_api_key ?? false;
   const isCustom = provider?.requires_base_url ?? false;
   const modelOptional = provider?.model_optional ?? false;
+  // A custom endpoint's agent is called with the endpoint's own key: no
+  // second key is made for it.
+  const accessKey = isCustom ? apiKey.trim() : draftAccessKey.trim();
   // A stored key only counts for the provider it was saved with.
   const keySaved = Boolean(
     agent?.has_api_key && agent.provider === draft.provider,
@@ -137,8 +144,8 @@ export function AgentForm({
             let base: AgentDraft = slug?.trim()
               ? { ...rest, slug: slug.trim() }
               : rest;
-            if (!agent && draftAccessKey.trim()) {
-              base = { ...base, access_key: draftAccessKey.trim() };
+            if (!agent && isUsableAccessKey(accessKey)) {
+              base = { ...base, access_key: accessKey };
             }
             // Blank means "keep the stored key", so it is not sent at all.
             onSave(acceptsKey && key ? { ...base, api_key: key } : base);
@@ -370,8 +377,10 @@ export function AgentForm({
             onSlugChange={(slug) => set("slug", slug)}
             publicBaseUrl={publicBaseUrl}
             onAccessChanged={onAccessChanged}
-            draftKey={draftAccessKey}
+            draftKey={isCustom ? apiKey : draftAccessKey}
             onDraftKeyChange={setDraftAccessKey}
+            usesEndpointKey={isCustom}
+            canUseEndpointKey={isCustom && keySaved}
           />
 
           {(keyError ?? error) && (

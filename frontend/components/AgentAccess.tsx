@@ -15,6 +15,15 @@ interface AgentAccessProps {
   /** Creating only: the key the agent will be saved with. */
   draftKey: string;
   onDraftKeyChange: (key: string) => void;
+  /** Custom endpoint: the access key is the endpoint key, not a new one. */
+  usesEndpointKey: boolean;
+  /** The saved agent has an endpoint key that can become its access key. */
+  canUseEndpointKey: boolean;
+}
+
+/** The backend's rule for a key it did not generate (chosen_key_problem). */
+export function isUsableAccessKey(key: string): boolean {
+  return /^[A-Za-z0-9_.~-]{24,200}$/.test(key);
 }
 
 /** A key in the same form the backend generates: agk_ + 32 random bytes. */
@@ -39,6 +48,8 @@ export function AgentAccess({
   onAccessChanged,
   draftKey,
   onDraftKeyChange,
+  usesEndpointKey,
+  canUseEndpointKey,
 }: AgentAccessProps) {
   const [hasKey, setHasKey] = useState(agent?.has_access_key ?? false);
   const [hint, setHint] = useState(agent?.access_key_hint ?? null);
@@ -69,7 +80,12 @@ export function AgentAccess({
   const shownSlug = slug.trim() || agent?.slug || "<from-agent-name>";
   const url = `${publicBaseUrl}/v1/agents/${shownSlug}/chat`;
   // The key the examples below show: the saved agent's, or the new one.
-  const shownKey = agent ? issuedKey : draftKey.trim() || null;
+  const draft = draftKey.trim();
+  const shownKey = agent
+    ? issuedKey
+    : draft && (!usesEndpointKey || isUsableAccessKey(draft))
+      ? draft
+      : null;
   const slugPending = Boolean(agent && slug.trim() && slug.trim() !== agent.slug);
   // Values for an external scanner's "E2E Application Testing" form. $INPUT
   // is where the scanner puts each test prompt; $.response is the reply text
@@ -101,12 +117,14 @@ export function AgentAccess({
     `  -d '{"message": "Hello"}'`,
   ].join("\n");
 
-  async function issue(chosenKey?: string) {
+  async function issue(chosenKey?: string | "endpoint") {
     if (!agent) return;
     if (
       hasKey &&
       !window.confirm(
-        chosenKey
+        chosenKey === "endpoint"
+          ? "Use the endpoint key as the access key? The current key stops working immediately."
+          : chosenKey
           ? "Use this key? The current key stops working immediately."
           : "Generate a new key? The current key stops working immediately.",
       )
@@ -257,6 +275,17 @@ export function AgentAccess({
             </button>
           </div>
 
+          {canUseEndpointKey && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => issue("endpoint")}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+            >
+              Use the endpoint key as the access key
+            </button>
+          )}
+
           {hasKey && !issuedKey && keyNote && (
             <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               {keyNote}
@@ -301,6 +330,14 @@ export function AgentAccess({
             </pre>
           </div>
         </div>
+      ) : usesEndpointKey ? (
+        <p className="text-xs text-slate-600">
+          {!draft
+            ? "Access key: the endpoint key you enter above. Callers use the same key."
+            : isUsableAccessKey(draft)
+              ? "Access key: the endpoint key above. Anyone given this URL and key can also call your endpoint directly with it."
+              : "The endpoint key is too short to use as an access key (24+ letters, digits, - _ . ~). The agent is saved without one; set it under Configure."}
+        </p>
       ) : (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-slate-700">

@@ -317,3 +317,27 @@ def test_a_working_model_is_saved_on_the_agent(client, gateway, custom_payload):
     gateway["seen"].clear()
     client.post(f"/api/agents/{created['id']}/chat", json={"message": "again"})
     assert gateway["seen"] == [""]
+
+
+ENDPOINT_KEY = "sk-litellm-virtual-key-0123456789ab"
+
+
+def test_the_endpoint_key_can_be_the_access_key(client, custom_payload):
+    agent = client.post(
+        "/api/agents", json={**custom_payload, "api_key": ENDPOINT_KEY}
+    ).json()
+    url = f"/api/agents/{agent['id']}/access-key"
+    response = client.post(url, json={"use_api_key": True})
+    assert response.status_code == 201, response.text
+    assert response.json()["access_key"] == ENDPOINT_KEY
+    reveal = client.post(f"{url}/reveal").json()
+    assert reveal["access_key"] == ENDPOINT_KEY
+
+
+def test_without_an_endpoint_key_there_is_nothing_to_reuse(client, custom_payload):
+    agent = client.post("/api/agents", json=custom_payload).json()
+    response = client.post(
+        f"/api/agents/{agent['id']}/access-key", json={"use_api_key": True}
+    )
+    assert response.status_code == 409
+    assert client.get(f"/api/agents/{agent['id']}").json()["has_access_key"] is False

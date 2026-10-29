@@ -40,6 +40,7 @@ from app.services.credentials import (
     clean_api_key,
     decrypt_api_key,
     encrypt_api_key,
+    resolve_api_key,
 )
 from app.services.llm.registry import list_providers, provider_class
 
@@ -147,6 +148,16 @@ def issue_access_key(
     """Set the key for this agent's public URL, replacing any old one: the
     caller's own key if the body carries one, otherwise a generated one."""
     chosen = (body.access_key or "").strip() if body else ""
+    if body and body.use_api_key:
+        try:
+            chosen = resolve_api_key(agent) or ""
+        except CredentialError as exc:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+        if not chosen:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This agent has no key saved for its endpoint to use.",
+            )
     if chosen:
         _check_chosen_key(chosen)
         key = chosen

@@ -126,13 +126,20 @@ export const deleteAgent = (id: string) =>
   request<void>(`/api/agents/${id}`, { method: "DELETE" });
 
 /** Issue (or rotate) the key for the agent's public URL. Shown once. */
-/** Set the agent's access key: `chosenKey` if given, else a generated one. */
-export const issueAccessKey = (id: string, chosenKey?: string) =>
+/**
+ * Set the agent's access key: `chosenKey` if given, the agent's stored
+ * endpoint key for "endpoint", else a generated one.
+ */
+export const issueAccessKey = (id: string, chosenKey?: string | "endpoint") =>
   request<{ access_key: string; access_key_hint: string }>(
     `/api/agents/${id}/access-key`,
     {
       method: "POST",
-      ...(chosenKey ? { body: JSON.stringify({ access_key: chosenKey }) } : {}),
+      ...(chosenKey === "endpoint"
+        ? { body: JSON.stringify({ use_api_key: true }) }
+        : chosenKey
+          ? { body: JSON.stringify({ access_key: chosenKey }) }
+          : {}),
     },
   );
 
