@@ -25,7 +25,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.services.llm.base import ProviderNotConfigured
-from app.services.llm.openai_provider import OpenAIProvider
+from app.services.llm.openai_provider import OpenAIProvider, client_options
 
 # The SDK refuses to build a client without some key. Endpoints that need none
 # ignore the resulting "Authorization: Bearer" header.
@@ -97,6 +97,7 @@ class CustomProvider(OpenAIProvider):
             kwargs: dict[str, Any] = {
                 "api_key": self._api_key or _NO_KEY,
                 "base_url": self.base_url,
+                **client_options(),
             }
             self._client = AsyncOpenAI(**kwargs)
         return self._client

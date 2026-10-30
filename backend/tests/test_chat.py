@@ -108,3 +108,33 @@ def test_history_does_not_leak_between_agents(client, agent_payload):
 def test_conversation_requires_existing_agent(client):
     response = client.post("/api/conversations", json={"agent_id": "missing"})
     assert response.status_code == 404
+
+
+def test_an_unanswered_question_is_not_replayed(client, agent_payload):
+    """Q1 failed and has no reply: Q2's history must not carry it, or the
+    model answers Q1 when asked Q2."""
+    from app.api.chat import _load_history
+    from app.db.session import SessionLocal
+    from app.models.message import Message
+
+    agent = _create_agent(client, agent_payload)
+    conversation = client.post(
+        "/api/conversations", json={"agent_id": agent["id"]}
+    ).json()
+    with SessionLocal() as session:
+        for role, content in [
+            ("user", "Q1 - the call failed"),
+            ("user", "Q2"),
+            ("assistant", "A2"),
+            ("user", "Q3 - timed out"),
+        ]:
+            session.add(
+                Message(conversation_id=conversation["id"], role=role, content=content)
+            )
+            session.commit()  # one at a time, so created_at orders them
+        history = _load_history(session, conversation["id"])
+
+    assert [(m.role, m.content) for m in history] == [
+        ("user", "Q2"),
+        ("assistant", "A2"),
+    ]

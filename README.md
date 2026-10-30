@@ -544,6 +544,12 @@ every call, and the admin key is not accepted here — so handing out an agent's
 key never hands out control of the platform. Set `PUBLIC_BASE_URL` if the UI
 should display a hostname other than the one it is served from.
 
+The access key can never be the agent's provider or endpoint key: whoever is
+given the access key (a scanner's E2E settings, say) could otherwise call the
+provider or LiteLLM directly, past the agent's instructions and tool gate. An
+agent given its endpoint key as access key before this rule existed still works,
+but the key is no longer shown; rotate it and update the callers.
+
 ### Admin endpoint
 
 The original endpoint, keyed by agent id and guarded by the admin key. This is
@@ -589,6 +595,36 @@ same `AgentRuntime` the UI uses. If `AGENT_API_KEY` is set, send it as
 > so far. Caller mistakes — unknown agent, bad API key — still return real error
 > codes.
 
+### Gateway probe
+
+For an agent on a custom endpoint, `POST /api/agents/{id}/probe` sends **one**
+raw Chat Completions request to its base URL and returns what came back - the
+status, every response header and the body - with the agent's key scrubbed. It
+makes no retry and never turns a refusal into an error, because the refusal is
+what it is for: capturing how a governance layer in front of LiteLLM (Agios)
+answers, so the platform can learn to recognise it.
+
+Agios checks a tool on the request that carries the model's call to it and the
+tool's result, so the probe can replay that round trip:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/agents/{agent_id}/probe \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt": "List the files here",
+       "tool_call": {"name": "terminal_exec", "arguments": {"input": "ls"}}}'
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `prompt` | `"ping"` | The user message |
+| `tools` | `[]` | Function names to declare. Any name is allowed, since Agios matches by name |
+| `tool_call` | none | `{name, arguments, result}`: the call and its result, as the follow-up request carries them |
+| `stream` | `false` | Ask for a stream; the raw SSE text is returned |
+| `bypass_cache` | `true` | Sends LiteLLM's `cache: {"no-cache": true}` |
+| `timeout_s` | `30` | Overall deadline, up to 120 |
+
+Like every POST under `/api`, it needs the admin key when that is enabled.
+
 ### Full endpoint list
 
 | Method | Path | Purpose |
@@ -598,6 +634,7 @@ same `AgentRuntime` the UI uses. If `AGENT_API_KEY` is set, send it as
 | `GET` `PATCH` `DELETE` | `/api/agents/{id}` | Read / update / delete |
 | `GET` | `/api/agents/providers` | Providers, availability, suggested models |
 | `POST` | `/api/agents/{id}/chat` | **Stateless agent call (Garak target)** |
+| `POST` | `/api/agents/{id}/probe` | One raw request to a custom endpoint, reply returned as-is |
 | `GET` `POST` | `/api/conversations` | List (filter `?agent_id=`) / create |
 | `GET` `DELETE` | `/api/conversations/{id}` | Read / delete |
 | `GET` | `/api/conversations/{id}/messages` | History |

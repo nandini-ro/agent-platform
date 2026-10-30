@@ -11,6 +11,8 @@ key like every other write.
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import SecretStr
 from sqlalchemy import select
@@ -71,6 +73,8 @@ def create_agent(payload: AgentCreate, db: Session = Depends(get_db)) -> Agent:
     access_key = (payload.access_key or "").strip()
     if access_key:
         _check_chosen_key(access_key)
+        if api_key is not None and secrets.compare_digest(access_key, api_key):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _REUSED_KEY)
     # The id is fixed up front because the ciphertext is bound to it.
     agent = Agent(
         id=new_id(), **payload.model_dump(exclude={"api_key", "access_key"})
@@ -147,19 +151,13 @@ def issue_access_key(
 ) -> AccessKeyIssued:
     """Set the key for this agent's public URL, replacing any old one: the
     caller's own key if the body carries one, otherwise a generated one."""
-    chosen = (body.access_key or "").strip() if body else ""
     if body and body.use_api_key:
-        try:
-            chosen = resolve_api_key(agent) or ""
-        except CredentialError as exc:
-            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
-        if not chosen:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "This agent has no key saved for its endpoint to use.",
-            )
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _REUSED_KEY)
+    chosen = (body.access_key or "").strip() if body else ""
     if chosen:
         _check_chosen_key(chosen)
+        if _is_provider_key(agent, chosen):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, _REUSED_KEY)
         key = chosen
     else:
         key, _, _ = generate_access_key()
@@ -173,6 +171,25 @@ def _check_chosen_key(key: str) -> None:
     problem = chosen_key_problem(key)
     if problem:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
+
+
+# The access key is handed to outside callers (a scanner's E2E settings, say).
+# Were it the provider key, every holder could call the provider or gateway
+# directly - past this agent's instructions, tools and permission gate.
+_REUSED_KEY = (
+    "The access key can't be the agent's provider or endpoint key: anyone "
+    "given the access key could then call the endpoint directly, bypassing "
+    "this agent. Generate a separate key instead."
+)
+
+
+def _is_provider_key(agent: Agent, key: str) -> bool:
+    """True when `key` is the agent's stored provider key."""
+    try:
+        provider_key = resolve_api_key(agent)
+    except CredentialError:
+        return False
+    return bool(provider_key) and secrets.compare_digest(provider_key, key)
 
 
 def _set_access_key(agent: Agent, key: str) -> None:
@@ -225,6 +242,15 @@ def reveal_access_key(agent: Agent = Depends(get_agent_or_404)) -> AccessKeyIssu
         )
     except CredentialError as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    if _is_provider_key(agent, key):
+        # Set before reuse was refused. Showing it would hand out the
+        # provider key, which the API otherwise never returns.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This access key is the agent's endpoint key, so it isn't shown. "
+            "Rotate it to get a separate key, then update anyone who calls "
+            "this agent (a scanner's E2E Auth Headers, say).",
+        )
     return AccessKeyIssued(access_key=key, access_key_hint=agent.access_key_hint or "")
 
 

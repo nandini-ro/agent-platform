@@ -10,7 +10,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import agents, attachments, chat, conversations, mcp, public, security, tools
+from app.api import (
+    agents,
+    attachments,
+    chat,
+    conversations,
+    mcp,
+    probe,
+    public,
+    security,
+    tools,
+)
 from app.config.settings import get_settings
 from app.db.session import init_db
 
@@ -89,6 +99,7 @@ app.include_router(conversations.router)
 app.include_router(chat.router)
 app.include_router(tools.router)
 app.include_router(mcp.router)
+app.include_router(probe.router)
 if settings.security_testing_enabled:
     app.include_router(security.router)
 # Outside /api, so the admin key gate above does not apply; each agent's own

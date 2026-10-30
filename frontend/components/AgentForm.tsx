@@ -90,9 +90,9 @@ export function AgentForm({
   const acceptsKey = provider?.accepts_api_key ?? false;
   const isCustom = provider?.requires_base_url ?? false;
   const modelOptional = provider?.model_optional ?? false;
-  // A custom endpoint's agent is called with the endpoint's own key: no
-  // second key is made for it.
-  const accessKey = isCustom ? apiKey.trim() : draftAccessKey.trim();
+  // Always a key of its own: the backend refuses the endpoint key, since
+  // whoever is given the access key could then call the endpoint directly.
+  const accessKey = draftAccessKey.trim();
   // A stored key only counts for the provider it was saved with.
   const keySaved = Boolean(
     agent?.has_api_key && agent.provider === draft.provider,
@@ -377,10 +377,8 @@ export function AgentForm({
             onSlugChange={(slug) => set("slug", slug)}
             publicBaseUrl={publicBaseUrl}
             onAccessChanged={onAccessChanged}
-            draftKey={isCustom ? apiKey : draftAccessKey}
+            draftKey={draftAccessKey}
             onDraftKeyChange={setDraftAccessKey}
-            usesEndpointKey={isCustom}
-            canUseEndpointKey={isCustom && keySaved}
           />
 
           {(keyError ?? error) && (

@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
 
+from app.config.settings import get_settings
 from app.services.llm.base import (
     BaseLLMProvider,
     LLMMessage,
@@ -55,8 +56,15 @@ class GeminiProvider(BaseLLMProvider):
             )
         if self._client is None:
             from google import genai
+            from google.genai import types
 
-            self._client = genai.Client(api_key=self._api_key)
+            # No retry_options: the SDK then makes one attempt, as the
+            # OpenAI-based providers do. The timeout is in milliseconds.
+            timeout_ms = int(get_settings().llm_timeout_seconds * 1000)
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options=types.HttpOptions(timeout=timeout_ms),
+            )
         return self._client
 
     # -- translation ------------------------------------------------------

@@ -87,8 +87,9 @@ class AccessKeySet(BaseModel):
     """Body of POST /access-key. Without `access_key` a key is generated."""
 
     access_key: str | None = None
-    # Use the agent's stored provider key (a custom endpoint's key, say) as
-    # its access key too, instead of a new one.
+    # Formerly: reuse the agent's provider key as its access key. Now always
+    # refused (it would hand the provider key to every caller); kept so an
+    # old client gets that explanation rather than a silently generated key.
     use_api_key: bool = False
 
 

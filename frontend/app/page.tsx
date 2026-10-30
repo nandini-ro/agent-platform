@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AgentForm } from "@/components/AgentForm";
 import { ChatWindow } from "@/components/ChatWindow";
@@ -32,6 +32,11 @@ const WAKE_RETRY_MS = 5_000;
 function isWaking(error: unknown): boolean {
   return error instanceof api.ApiError && WAKE_STATUSES.has(error.status);
 }
+
+// How long a reply may go silent before the page stops waiting for it. The
+// backend allows each model call LLM_TIMEOUT_SECONDS (120 s by default); this
+// is the browser's backstop for a stream that stalls without an error event.
+const REPLY_IDLE_TIMEOUT_MS = 150_000;
 
 // Ids for optimistic messages that exist only until the server's `done` event
 // supplies the real one. A counter rather than a timestamp: two messages in the
@@ -85,6 +90,9 @@ export default function Home() {
   // Transient
   const [pending, setPending] = useState<PendingMessage | null>(null);
   const [sending, setSending] = useState(false);
+  // The reply being waited for. Stream callbacks act only while theirs is
+  // still this one, so a late reply never lands under a later question.
+  const inFlight = useRef<{ controller: AbortController } | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -181,8 +189,26 @@ export default function Home() {
 
   // -- chat -----------------------------------------------------------------
 
+  /**
+   * Stop waiting for the current reply, if there is one. The backend sees the
+   * disconnect and cancels the model call, and the unanswered question is not
+   * replayed to the model in later turns.
+   */
+  function cancelInFlight() {
+    const request = inFlight.current;
+    if (!request) return;
+    inFlight.current = null;
+    request.controller.abort();
+    setPending(null);
+    setSending(false);
+  }
+
   async function send(content: string, attachments: Attachment[] = []) {
     if (!agent) return;
+    cancelInFlight();
+    const request = { controller: new AbortController() };
+    inFlight.current = request;
+    const isCurrent = () => inFlight.current === request;
     setChatError(null);
     setSending(true);
 
@@ -199,10 +225,14 @@ export default function Home() {
         targetId = conversation.id;
       }
     } catch (e) {
-      setChatError((e as Error).message);
-      setSending(false);
+      if (isCurrent()) {
+        inFlight.current = null;
+        setChatError((e as Error).message);
+        setSending(false);
+      }
       return;
     }
+    if (!isCurrent()) return;
 
     const optimisticUser: Message = {
       id: nextOptimisticId(),
@@ -215,37 +245,76 @@ export default function Home() {
     appendMessage(targetId, optimisticUser);
     setPending({ content: "", toolCalls: [] });
 
-    await api.streamMessage(targetId, content, attachments.map((a) => a.id), {
-      onToken: (text) =>
-        setPending((p) => (p ? { ...p, content: p.content + text } : p)),
-      onToolCall: (call) =>
-        setPending((p) => (p ? { ...p, toolCalls: [...p.toolCalls, call] } : p)),
-      onDone: (payload) => {
-        setPending(null);
-        appendMessage(targetId, {
-          id: payload.message_id,
-          conversation_id: targetId,
-          role: "assistant",
-          content: payload.content,
-          meta: { tool_calls: payload.tool_calls, ...payload.metadata },
-          created_at: new Date().toISOString(),
-        });
-        // The backend titles a conversation from its first message.
-        void api
-          .listConversations(agent.id)
-          .then((items) => setConversationCache({ agentId: agent.id, items }))
-          .catch(() => undefined);
+    // Restarted by every event; SSE keep-alive pings carry no event, so a
+    // stream that only pings still times out.
+    let watchdog: number | undefined;
+    const armWatchdog = () => {
+      window.clearTimeout(watchdog);
+      watchdog = window.setTimeout(() => {
+        if (!isCurrent()) return;
+        request.controller.abort();
+        setChatError(
+          `No response - timed out after ${REPLY_IDLE_TIMEOUT_MS / 1000} s. ` +
+            "Send the question again to retry.",
+        );
+      }, REPLY_IDLE_TIMEOUT_MS);
+    };
+    armWatchdog();
+
+    // Every event is dropped once this request is no longer the current one.
+    const guard =
+      <T,>(handle: (arg: T) => void) =>
+      (arg: T) => {
+        if (!isCurrent()) return;
+        armWatchdog();
+        handle(arg);
+      };
+
+    await api.streamMessage(
+      targetId,
+      content,
+      attachments.map((a) => a.id),
+      {
+        onToken: guard((text) =>
+          setPending((p) => (p ? { ...p, content: p.content + text } : p)),
+        ),
+        onToolCall: guard((call) =>
+          setPending((p) =>
+            p ? { ...p, toolCalls: [...p.toolCalls, call] } : p,
+          ),
+        ),
+        onDone: guard((payload) => {
+          setPending(null);
+          appendMessage(targetId, {
+            id: payload.message_id,
+            conversation_id: targetId,
+            role: "assistant",
+            content: payload.content,
+            meta: { tool_calls: payload.tool_calls, ...payload.metadata },
+            created_at: new Date().toISOString(),
+          });
+          // The backend titles a conversation from its first message.
+          void api
+            .listConversations(agent.id)
+            .then((items) => setConversationCache({ agentId: agent.id, items }))
+            .catch(() => undefined);
+        }),
+        onError: guard((message) => {
+          setPending(null);
+          setChatError(message);
+        }),
       },
-      onError: (message) => {
-        setPending(null);
-        setChatError(message);
-      },
-    });
+      request.controller.signal,
+    );
+    window.clearTimeout(watchdog);
 
     // The stream can also end without a terminal event (dropped connection).
     // Clearing here guarantees the streaming placeholder never outlives it.
-    setPending(null);
-    setSending(false);
+    if (isCurrent()) {
+      inFlight.current = null;
+      setPending(null);
+      setSending(false);
+    }
   }
 
   // -- agents ---------------------------------------------------------------
@@ -294,7 +363,10 @@ export default function Home() {
       await api.deleteAgent(target.id);
       const agentList = await api.listAgents();
       setAgents(agentList);
-      if (agent?.id === target.id) setAgent(agentList[0] ?? null);
+      if (agent?.id === target.id) {
+        cancelInFlight();
+        setAgent(agentList[0] ?? null);
+      }
     } catch (e) {
       setChatError((e as Error).message);
     }
@@ -302,8 +374,8 @@ export default function Home() {
 
   function startNewChat() {
     if (!agent) return;
+    cancelInFlight();
     setSelection({ agentId: agent.id, conversationId: null });
-    setPending(null);
     setChatError(null);
   }
 
@@ -366,7 +438,10 @@ export default function Home() {
           setFormError(null);
           setOverlay("agent-form");
         }}
-        onSelectAgent={setAgent}
+        onSelectAgent={(a) => {
+          cancelInFlight();
+          setAgent(a);
+        }}
         onEditAgent={(a) => {
           setEditing(a);
           setFormError(null);
@@ -374,9 +449,10 @@ export default function Home() {
         }}
         onDeleteAgent={removeAgent}
         onNewChat={startNewChat}
-        onSelectConversation={(c) =>
-          setSelection({ agentId: c.agent_id, conversationId: c.id })
-        }
+        onSelectConversation={(c) => {
+          cancelInFlight();
+          setSelection({ agentId: c.agent_id, conversationId: c.id });
+        }}
         onOpenTools={() => setOverlay("tools")}
         onOpenSecurity={
           securityTesting ? () => setOverlay("security") : undefined

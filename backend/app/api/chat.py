@@ -45,9 +45,9 @@ def _load_history(
 ) -> list[LLMMessage]:
     """Prior turns as provider-neutral messages.
 
-    Only the visible text of each turn is replayed - tool round trips are
-    recorded in message metadata for display but not resent, which keeps the
-    context small and avoids stale tool-use ids.
+    Only answered questions are replayed, and only the visible text of each
+    turn - tool round trips are recorded in message metadata for display but
+    not resent, which keeps the context small and avoids stale tool-use ids.
 
     Attached documents are replayed as text. Attached images are replayed as
     images newest first, up to `image_budget`; older ones become a one-line
@@ -61,6 +61,16 @@ def _load_history(
             .order_by(Message.created_at)
         )
         if m.role in ("user", "assistant")
+    ]
+    # A question whose answer never arrived - the call failed, timed out, or
+    # the client went away - is stored but not replayed. Left in, it sits
+    # unanswered just before the next question, and models then answer it
+    # instead of (or as well as) the new one.
+    rows = [
+        m
+        for i, m in enumerate(rows)
+        if m.role == "assistant"
+        or (i + 1 < len(rows) and rows[i + 1].role == "assistant")
     ]
     files: dict[str, list[Attachment]] = {}
     for a in db.scalars(

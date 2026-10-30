@@ -20,6 +20,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from app.config.settings import get_settings
 from app.services.llm.base import (
     BaseLLMProvider,
     LLMMessage,
@@ -49,6 +50,17 @@ _NO_SAMPLING_PREFIXES = ("o1", "o3", "o4")
 
 def _accepts_sampling(model: str) -> bool:
     return not model.startswith(_NO_SAMPLING_PREFIXES)
+
+
+def client_options() -> dict[str, Any]:
+    """Timeout and retry settings for every AsyncOpenAI client.
+
+    The SDK's defaults are two silent retries and a 600 s timeout. A retry
+    resends a question the user may already have given up on, so its answer
+    can land after they have moved on - and through a gateway it skews every
+    latency figure. A failed call fails once, within LLM_TIMEOUT_SECONDS.
+    """
+    return {"max_retries": 0, "timeout": get_settings().llm_timeout_seconds}
 
 
 class OpenAIProvider(BaseLLMProvider):
@@ -82,7 +94,7 @@ class OpenAIProvider(BaseLLMProvider):
         if self._client is None:
             from openai import AsyncOpenAI
 
-            kwargs: dict[str, Any] = {"api_key": self._api_key}
+            kwargs: dict[str, Any] = {"api_key": self._api_key, **client_options()}
             if self.base_url:
                 kwargs["base_url"] = self.base_url
             self._client = AsyncOpenAI(**kwargs)

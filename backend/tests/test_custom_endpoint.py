@@ -208,7 +208,7 @@ def gateway(monkeypatch):
     def patched(**kwargs):
         transport = httpx.MockTransport(handler)
         return real(
-            **kwargs, max_retries=0, http_client=httpx.AsyncClient(transport=transport)
+            **kwargs, http_client=httpx.AsyncClient(transport=transport)
         )
 
     monkeypatch.setattr(openai, "AsyncOpenAI", patched)
@@ -281,7 +281,7 @@ async def test_other_errors_are_not_retried(monkeypatch):
         openai,
         "AsyncOpenAI",
         lambda **kw: real(
-            **kw, max_retries=0, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            **kw, http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
         ),
     )
     provider = CustomProvider(api_key="sk", base_url=BASE)
@@ -322,22 +322,87 @@ def test_a_working_model_is_saved_on_the_agent(client, gateway, custom_payload):
 ENDPOINT_KEY = "sk-litellm-virtual-key-0123456789ab"
 
 
-def test_the_endpoint_key_can_be_the_access_key(client, custom_payload):
+# The access key goes to outside callers (a scanner's E2E settings), so it must
+# never be the endpoint key: that would let them call the gateway directly.
+
+
+def test_the_endpoint_key_cannot_become_the_access_key(client, custom_payload):
     agent = client.post(
         "/api/agents", json={**custom_payload, "api_key": ENDPOINT_KEY}
     ).json()
     url = f"/api/agents/{agent['id']}/access-key"
-    response = client.post(url, json={"use_api_key": True})
-    assert response.status_code == 201, response.text
-    assert response.json()["access_key"] == ENDPOINT_KEY
-    reveal = client.post(f"{url}/reveal").json()
-    assert reveal["access_key"] == ENDPOINT_KEY
-
-
-def test_without_an_endpoint_key_there_is_nothing_to_reuse(client, custom_payload):
-    agent = client.post("/api/agents", json=custom_payload).json()
-    response = client.post(
-        f"/api/agents/{agent['id']}/access-key", json={"use_api_key": True}
-    )
-    assert response.status_code == 409
+    for body in ({"use_api_key": True}, {"access_key": ENDPOINT_KEY}):
+        response = client.post(url, json=body)
+        assert response.status_code == 422, response.text
+        assert ENDPOINT_KEY not in response.text
     assert client.get(f"/api/agents/{agent['id']}").json()["has_access_key"] is False
+
+
+def test_an_agent_cannot_be_created_with_its_endpoint_key_as_access_key(
+    client, custom_payload
+):
+    response = client.post(
+        "/api/agents",
+        json={**custom_payload, "api_key": ENDPOINT_KEY, "access_key": ENDPOINT_KEY},
+    )
+    assert response.status_code == 422
+    assert ENDPOINT_KEY not in response.text
+
+
+def test_an_endpoint_key_set_as_access_key_earlier_is_not_revealed(
+    client, custom_payload
+):
+    from app.api.agents import _set_access_key
+    from app.db.session import SessionLocal
+    from app.models.agent import Agent
+
+    agent = client.post(
+        "/api/agents", json={**custom_payload, "api_key": ENDPOINT_KEY}
+    ).json()
+    with SessionLocal() as session:  # as the removed reuse option left it
+        row = session.get(Agent, agent["id"])
+        _set_access_key(row, ENDPOINT_KEY)
+        session.commit()
+
+    url = f"/api/agents/{agent['id']}/access-key"
+    reveal = client.post(f"{url}/reveal")
+    assert reveal.status_code == 409
+    assert ENDPOINT_KEY not in reveal.text
+    # Rotating replaces it with a separate key, which can be shown.
+    rotated = client.post(url).json()["access_key"]
+    assert rotated.startswith("agk_")
+    assert client.post(f"{url}/reveal").json()["access_key"] == rotated
+
+
+# -- no hidden retries ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_failed_call_is_sent_once(monkeypatch):
+    """The SDK retries twice by default. A retry resends a question the user
+    may have given up on, and its late answer is what lands on the next one."""
+    from app.config.settings import get_settings
+
+    seen: list[httpx.Request] = []
+    options: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(503, json={"error": {"message": "upstream down"}})
+
+    real = openai.AsyncOpenAI
+
+    def patched(**kwargs):
+        options.update(kwargs)
+        transport = httpx.MockTransport(handler)
+        return real(**kwargs, http_client=httpx.AsyncClient(transport=transport))
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", patched)
+    provider = CustomProvider(api_key="k", base_url=BASE)
+    with pytest.raises(openai.APIStatusError):
+        await provider.generate(
+            model="m", system="", messages=[LLMMessage(role="user", content="hi")]
+        )
+    assert len(seen) == 1
+    assert options["max_retries"] == 0
+    assert options["timeout"] == get_settings().llm_timeout_seconds
