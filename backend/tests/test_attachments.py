@@ -1,11 +1,10 @@
-"""Chat attachments: upload, classification, sending, history and providers."""
+"""Chat attachments: upload, classification, sending and providers."""
 
 import base64
 import json
 
 import pytest
 
-from app.api.chat import _load_history
 from app.db.session import SessionLocal
 from app.models.attachment import Attachment
 from app.services.attachments import MAX_IMAGE_BYTES, message_blocks
@@ -151,30 +150,6 @@ def test_deleting_the_conversation_deletes_its_files(client, agent_payload):
     assert client.delete(f"/api/conversations/{conversation['id']}").status_code == 204
     with SessionLocal() as db:
         assert db.get(Attachment, image["id"]) is None
-
-
-# -- history ------------------------------------------------------------------
-
-
-def test_history_replays_documents_and_only_the_newest_images(client, agent_payload):
-    conversation = _conversation(client, agent_payload)
-    first = _upload(client, "old.png", PNG).json()
-    _send(client, conversation["id"], "first", [first["id"]])
-    doc = _upload(client, "notes.txt", b"Remember this.").json()
-    second = _upload(client, "new.jpg", JPEG).json()
-    _send(client, conversation["id"], "second", [doc["id"], second["id"]])
-
-    with SessionLocal() as db:
-        history = _load_history(db, conversation["id"], image_budget=1)
-
-    first_turn, second_turn = history[0], history[2]
-    # The older image is past the budget: a placeholder, not the bytes.
-    assert isinstance(first_turn.content, str)
-    assert "[Image old.png was shared earlier in the conversation]" in first_turn.content
-    # The newer turn keeps its image and its document's text.
-    assert [b["type"] for b in second_turn.content] == ["text", "image"]
-    assert "Remember this." in second_turn.content[0]["text"]
-    assert second_turn.content[1]["media_type"] == "image/jpeg"
 
 
 # -- providers ----------------------------------------------------------------

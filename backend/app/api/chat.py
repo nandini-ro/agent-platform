@@ -40,61 +40,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
-def _load_history(
-    db: Session, conversation_id: str, image_budget: int = MAX_IMAGES_PER_REQUEST
-) -> list[LLMMessage]:
-    """Prior turns as provider-neutral messages.
-
-    Only the visible text of each turn is replayed - tool round trips are
-    recorded in message metadata for display but not resent, which keeps the
-    context small and avoids stale tool-use ids.
-
-    Attached documents are replayed as text. Attached images are replayed as
-    images newest first, up to `image_budget`; older ones become a one-line
-    placeholder, because providers cap the images in a single request.
-    """
-    rows = [
-        m
-        for m in db.scalars(
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at)
-        )
-        if m.role in ("user", "assistant")
-    ]
-    files: dict[str, list[Attachment]] = {}
-    for a in db.scalars(
-        select(Attachment)
-        .where(Attachment.message_id.in_([m.id for m in rows]))
-        .order_by(Attachment.created_at)
-    ):
-        files.setdefault(a.message_id, []).append(a)
-
-    shown: set[str] = set()
-    for m in reversed(rows):
-        for a in files.get(m.id, []):
-            if a.kind == "image" and len(shown) < image_budget:
-                shown.add(a.id)
-
-    history = []
-    for m in rows:
-        attached = files.get(m.id, [])
-        if not m.content and not attached:
-            continue
-        old = [a for a in attached if a.kind == "image" and a.id not in shown]
-        current = [a for a in attached if a not in old]
-        content = message_blocks(m.content, current)
-        if old:
-            placeholder = message_blocks("", old, include_images=False)
-            content = (
-                f"{content}\n\n{placeholder}".strip()
-                if isinstance(content, str)
-                else [*content, {"type": "text", "text": placeholder}]
-            )
-        history.append(LLMMessage(role=m.role, content=content))
-    return history
-
-
 def _claim(db: Session, ids: list[str]) -> list[Attachment]:
     """The unclaimed uploads with these ids, in the order given."""
     if not ids:
@@ -206,8 +151,11 @@ async def send_message(
 
     attachments = _claim(db, payload.attachment_ids)
     image_count = sum(a.kind == "image" for a in attachments)
-    history = _load_history(
-        db, conversation_id, image_budget=MAX_IMAGES_PER_REQUEST - image_count
+    # Every message stands alone: earlier turns are kept for display but never
+    # sent to the model, so one question's answer cannot bleed into the next.
+    first_message = (
+        db.scalar(select(Message.id).where(Message.conversation_id == conversation_id))
+        is None
     )
 
     text = payload.content.strip()
@@ -222,7 +170,7 @@ async def send_message(
     for attachment in attachments:
         attachment.message_id = user_message.id
     # First user message names the conversation.
-    if not history:
+    if first_message:
         conversation.title = (text or attachments[0].filename)[:60]
         db.add(conversation)
     db.commit()
@@ -242,7 +190,7 @@ async def send_message(
             final: RuntimeResult | None = None
             try:
                 runtime = AgentRuntime(live_agent)
-                async for item in runtime.stream(history, content):
+                async for item in runtime.stream([], content):
                     if isinstance(item, ToolInvocation):
                         yield {"event": "tool", "data": json.dumps(item.to_dict())}
                     elif isinstance(item, RuntimeResult):

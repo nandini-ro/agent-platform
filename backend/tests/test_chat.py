@@ -108,3 +108,30 @@ def test_history_does_not_leak_between_agents(client, agent_payload):
 def test_conversation_requires_existing_agent(client):
     response = client.post("/api/conversations", json={"agent_id": "missing"})
     assert response.status_code == 404
+
+
+def test_earlier_turns_are_not_sent_to_the_model(client, agent_payload, monkeypatch):
+    """Each message stands alone: the model never sees the conversation so far."""
+    from app.services.agent_runtime import AgentRuntime
+
+    seen = []
+    real = AgentRuntime.stream
+
+    def spy(self, history, user_message):
+        seen.append((list(history), user_message))
+        return real(self, history, user_message)
+
+    monkeypatch.setattr(AgentRuntime, "stream", spy)
+    agent = _create_agent(client, agent_payload)
+    conversation = client.post(
+        "/api/conversations", json={"agent_id": agent["id"]}
+    ).json()
+    _stream_events(client, conversation["id"], "first question")
+    _stream_events(client, conversation["id"], "second question")
+
+    assert seen == [([], "first question"), ([], "second question")]
+    # Both turns are still stored for display, and the title is the first.
+    messages = client.get(f"/api/conversations/{conversation['id']}/messages").json()
+    assert [m["role"] for m in messages] == ["user", "assistant", "user", "assistant"]
+    refreshed = client.get(f"/api/conversations/{conversation['id']}").json()
+    assert refreshed["title"] == "first question"

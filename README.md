@@ -190,8 +190,10 @@ Select an agent, type, press Enter. Replies stream token by token. Tool and MCP
 calls appear as expandable badges above the reply showing the arguments, the
 result, and how long the call took — green for executed, red for refused.
 
-**New chat** starts a fresh conversation with the selected agent. Conversations
-are scoped to their agent, so history never crosses between agents.
+**Every message stands alone.** Earlier turns stay on screen but are never sent
+to the model, so each question gets an answer to that question only - a late or
+failed reply cannot bleed into the next one. **New chat** starts a fresh
+conversation with the selected agent; conversations are scoped to their agent.
 
 ### See different agents behave differently
 
@@ -215,9 +217,9 @@ pasting a screenshot or dropping files onto the box works too.
   are sent to the model as images, so the agent's model must accept images:
   on Groq that is `qwen/qwen3.8-27b`; `openai/gpt-oss-120b` is text-only.
 
-Files are recognised by their content, not their extension. Images stay in
-the database and are resent on later turns (the 3 newest), so follow-up
-questions about them work; documents keep only their extracted text. Deleting
+Files are recognised by their content, not their extension. A file goes to
+the model only with the message it is attached to - earlier turns are not
+resent, so ask about a file in the same message that attaches it. Deleting
 a conversation deletes its files, and uploads never sent are removed after a
 day.
 
@@ -807,8 +809,8 @@ docs/architecture.md            Diagrams, component responsibilities, trade-offs
   hostile description is a prompt-injection vector that the SSRF check, which
   only governs *where* you connect, does nothing about.
 - **Security runs are in-process asyncio tasks** and do not survive a restart.
-- **History is replayed as plain text.** Tool round trips are shown in the UI
-  but not re-sent to the model on later turns.
+- **No conversation memory.** Each message is sent to the model on its own;
+  follow-up questions that rely on an earlier answer will not work.
 - **Garak scans cost real tokens** against a live provider. A thorough probe
   like `DanInTheWild` issues hundreds of calls.
 - **Conversation titles** are the first 60 characters of the first message; no
