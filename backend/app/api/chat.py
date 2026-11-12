@@ -168,10 +168,14 @@ async def run_stateless(agent: Agent, message: str) -> AgentChatResponse:
         )
     except Exception as exc:  # noqa: BLE001 - keep long scans alive
         logger.exception("agent %s: runtime failure", agent.id)
+        # The endpoint's own answer (a refusal from the gateway, say) is the
+        # reply. An "[error]" placeholder made scanners count every refused
+        # prompt as a broken target and abandon the scan.
+        detail = _safe_detail(runtime, exc)
         return AgentChatResponse(
             agent_id=agent.id,
-            response="[error] The agent failed to produce a response.",
-            metadata={"error": "runtime_failure", "detail": _safe_detail(runtime, exc)},
+            response=detail,
+            metadata={"error": "runtime_failure", "detail": detail},
         )
 
     return AgentChatResponse(
