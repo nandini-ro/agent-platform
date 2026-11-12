@@ -16,7 +16,11 @@ is meant to face the internet.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+import json
+import logging
+import re
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -26,7 +30,14 @@ from app.models.agent import Agent
 from app.schemas.chat import AgentChatRequest, AgentChatResponse
 from app.services.agent_access import access_key_matches
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/v1", tags=["public"])
+
+# {"message": "..."} whose value was pasted in unescaped, so a quote or line
+# break in it makes the JSON invalid - what a scanner that fills its request
+# template by plain text substitution sends.
+_UNESCAPED_TEMPLATE = re.compile(r'^\s*\{\s*"message"\s*:\s*"(.*)"\s*\}\s*$', re.DOTALL)
 
 _CHALLENGE = {"WWW-Authenticate": "Bearer"}
 
@@ -63,9 +74,73 @@ def get_authorised_agent(
     return agent
 
 
-@router.post("/agents/{agent_ref}/chat", response_model=AgentChatResponse)
+def message_from_body(raw: bytes) -> tuple[str | None, str]:
+    """The message in a request body, and how it was found (for the log).
+
+    Lenient on purpose, because the callers are scanners filling a template:
+    the Content-Type header may be missing, the value may have been pasted in
+    unescaped, or the field may have another name. Accepted:
+
+    * a JSON object with a string `message`, or with exactly one string field
+    * a JSON string
+    * {"message": "..."} made invalid by an unescaped value
+    * plain text that is not JSON at all
+    """
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        return None, "empty body"
+    try:
+        data = json.loads(text)
+    except ValueError:
+        match = _UNESCAPED_TEMPLATE.match(text)
+        if match:
+            return match.group(1).replace('\\"', '"'), "unescaped template"
+        if text[0] in "{[":
+            return None, "invalid JSON"
+        return text, "plain text"
+    if isinstance(data, str):
+        return data, "JSON string"
+    if not isinstance(data, dict):
+        return None, f"JSON {type(data).__name__}, not an object"
+    if isinstance(data.get("message"), str):
+        return data["message"], "message field"
+    strings = [v for v in data.values() if isinstance(v, str)]
+    if len(strings) == 1:
+        return strings[0], "only string field"
+    return None, f"no message field (keys: {sorted(data)[:10]})"
+
+
+@router.post(
+    "/agents/{agent_ref}/chat",
+    response_model=AgentChatResponse,
+    # The body is read by hand (see message_from_body); this documents the
+    # shape callers should send.
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {"schema": AgentChatRequest.model_json_schema()}
+            },
+        }
+    },
+)
 async def public_agent_chat(
-    payload: AgentChatRequest, agent: Agent = Depends(get_authorised_agent)
+    request: Request, agent: Agent = Depends(get_authorised_agent)
 ) -> AgentChatResponse:
     """Send one message to an agent and get its reply. No history is kept."""
-    return await run_stateless(agent, payload.message)
+    raw = await request.body()
+    message, found = message_from_body(raw)
+    if not message or not message.strip():
+        # Logged with the reason, because a scanner reports only "HTTP 422".
+        logger.warning(
+            "agent %s: public call refused (%s; %d bytes, content-type %r)",
+            agent.id,
+            found if message is None else "blank message",
+            len(raw),
+            request.headers.get("content-type"),
+        )
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            'No message found in the request body. Send JSON like {"message": "Hello"}.',
+        )
+    return await run_stateless(agent, message)

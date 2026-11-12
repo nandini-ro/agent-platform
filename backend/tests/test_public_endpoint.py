@@ -262,3 +262,68 @@ def test_a_weak_key_on_create_creates_nothing(client, agent_payload):
     response = client.post("/api/agents", json={**agent_payload, "access_key": "short"})
     assert response.status_code == 422
     assert len(client.get("/api/agents").json()) == before
+
+
+# -- request bodies -----------------------------------------------------------
+#
+# Scanners fill a request template and report only "HTTP 422" when it is
+# refused, so the endpoint takes the message however a template sends it.
+
+
+@pytest.mark.parametrize(
+    "body, headers",
+    [
+        ('{"message": "hi"}', {"Content-Type": "application/json"}),
+        ('{"message": "hi"}', {}),  # no Content-Type
+        ('{"message": "hi"}', {"Content-Type": "text/plain"}),
+        ('{"prompt": "hi"}', {"Content-Type": "application/json"}),
+        ('"hi"', {"Content-Type": "application/json"}),
+        ("hi", {"Content-Type": "text/plain"}),
+    ],
+)
+def test_the_message_is_found_however_it_is_sent(client, agent_payload, body, headers):
+    agent = _create(client, agent_payload)
+    key = _issue(client, agent["id"])
+    response = client.post(
+        f"/v1/agents/{agent['slug']}/chat",
+        content=body.encode(),
+        headers={"Authorization": f"Bearer {key}", **headers},
+    )
+    assert response.status_code == 200, response.text
+    assert "hi" in response.json()["response"]
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ('{"message": "say "hi" now"}', 'say "hi" now'),
+        ('{"message": "line one\nline two"}', "line one\nline two"),
+    ],
+)
+def test_an_unescaped_template_value_is_still_read(body, expected):
+    from app.api.public import message_from_body
+
+    assert message_from_body(body.encode())[0] == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    ["", '{"message": ""}', '{"message": "   "}', '{"a": "x", "b": "y"}', "[1, 2]", "{oops"],
+)
+def test_a_body_without_a_message_is_refused(client, agent_payload, body, caplog):
+    agent = _create(client, agent_payload)
+    key = _issue(client, agent["id"])
+    response = client.post(
+        f"/v1/agents/{agent['slug']}/chat",
+        content=body.encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert "public call refused" in caplog.text
+
+
+def test_the_key_is_checked_before_the_body(client, agent_payload):
+    agent = _create(client, agent_payload)
+    _issue(client, agent["id"])
+    response = client.post(f"/v1/agents/{agent['slug']}/chat", content=b"")
+    assert response.status_code == 401
