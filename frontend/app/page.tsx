@@ -257,6 +257,11 @@ export default function Home() {
       const saved = editing
         ? await api.updateAgent(editing.id, draft)
         : await api.createAgent(draft);
+      // The access key is always the endpoint key, so a new endpoint key
+      // replaces it too. A new agent was already created with it.
+      if (editing && draft.api_key) {
+        await api.issueAccessKey(saved.id, "endpoint");
+      }
       const agentList = await api.listAgents();
       setAgents(agentList);
       setAgent(saved);
@@ -266,19 +271,6 @@ export default function Home() {
       setFormError((e as Error).message);
     } finally {
       setSaving(false);
-    }
-  }
-
-  /** A key was issued or revoked from the open form; refresh the agent. */
-  async function refreshAgents() {
-    try {
-      const agentList = await api.listAgents();
-      setAgents(agentList);
-      setAgent((current) =>
-        current ? (agentList.find((a) => a.id === current.id) ?? current) : current,
-      );
-    } catch {
-      /* the form already shows the change; the list catches up on next load */
     }
   }
 
@@ -425,7 +417,6 @@ export default function Home() {
           error={formError}
           onSave={saveAgent}
           publicBaseUrl={publicBaseUrl}
-          onAccessChanged={refreshAgents}
           onCancel={() => {
             setOverlay("none");
             setEditing(null);

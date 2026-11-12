@@ -2,11 +2,7 @@
 
 import { useState } from "react";
 
-import {
-  AgentAccess,
-  isUsableAccessKey,
-  newAccessKey,
-} from "@/components/AgentAccess";
+import { AgentAccess, isUsableAccessKey } from "@/components/AgentAccess";
 import type {
   Agent,
   AgentDraft,
@@ -25,15 +21,17 @@ interface AgentFormProps {
   onSave: (draft: AgentDraft) => void;
   onCancel: () => void;
   publicBaseUrl: string;
-  onAccessChanged: () => void;
 }
+
+// Every agent runs on a custom (OpenAI-compatible) endpoint.
+const PROVIDER = "custom";
 
 const EMPTY: AgentDraft = {
   name: "",
   description: "",
   system_prompt: "",
-  provider: "mock",
-  model: "mock-1",
+  provider: PROVIDER,
+  model: "",
   base_url: null,
   temperature: 1,
   max_tokens: 2048,
@@ -46,14 +44,13 @@ function toDraft(agent: Agent): AgentDraft {
     name: agent.name,
     description: agent.description,
     system_prompt: agent.system_prompt,
-    provider: agent.provider,
+    provider: PROVIDER,
     model: agent.model,
     base_url: agent.base_url,
     temperature: agent.temperature,
     max_tokens: agent.max_tokens,
     tools: agent.tools,
     mcp_server_ids: agent.mcp_server_ids,
-    slug: agent.slug ?? "",
   };
 }
 
@@ -67,7 +64,6 @@ export function AgentForm({
   onSave,
   onCancel,
   publicBaseUrl,
-  onAccessChanged,
 }: AgentFormProps) {
   // The form is mounted fresh each time it opens (and keyed by agent id), so
   // the initial value is all the synchronisation it needs.
@@ -77,11 +73,6 @@ export function AgentForm({
   // The provider key lives only in this component's state until it is
   // submitted; the backend never sends a stored one back.
   const [apiKey, setApiKey] = useState("");
-  // A new agent's access key, made now so the API access section can show
-  // it before the agent is saved. Existing agents manage theirs in place.
-  const [draftAccessKey, setDraftAccessKey] = useState(() =>
-    agent ? "" : newAccessKey(),
-  );
   const [showKey, setShowKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
 
@@ -90,9 +81,8 @@ export function AgentForm({
   const acceptsKey = provider?.accepts_api_key ?? false;
   const isCustom = provider?.requires_base_url ?? false;
   const modelOptional = provider?.model_optional ?? false;
-  // A custom endpoint's agent is called with the endpoint's own key: no
-  // second key is made for it.
-  const accessKey = isCustom ? apiKey.trim() : draftAccessKey.trim();
+  // The agent is called with the endpoint's own key: no second key is made.
+  const accessKey = apiKey.trim();
   // A stored key only counts for the provider it was saved with.
   const keySaved = Boolean(
     agent?.has_api_key && agent.provider === draft.provider,
@@ -139,11 +129,7 @@ export function AgentForm({
               return;
             }
             setKeyError(null);
-            // A blank URL name is left out: derived on create, kept on update.
-            const { slug, ...rest } = draft;
-            let base: AgentDraft = slug?.trim()
-              ? { ...rest, slug: slug.trim() }
-              : rest;
+            let base: AgentDraft = draft;
             if (!agent && isUsableAccessKey(accessKey)) {
               base = { ...base, access_key: accessKey };
             }
@@ -183,50 +169,22 @@ export function AgentForm({
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Model provider">
-              <select
-                value={draft.provider}
-                onChange={(e) => {
-                  const next = providers.find((p) => p.name === e.target.value);
-                  set("provider", e.target.value);
-                  // A custom endpoint has no list to pick from, and the
-                  // previous provider's model would mean nothing to it.
-                  set("model", next?.models[0] ?? "");
-                }}
-                className={inputClass}
-              >
-                {providers.map((p) => (
-                  <option key={p.name} value={p.name}>
-                    {p.requires_base_url ? "Custom endpoint (base URL + key)" : p.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field
-              label="Model"
-              hint={
-                modelOptional
-                  ? "Optional. Leave blank to use the endpoint's default; a model the key may not use is replaced with one it may."
-                  : undefined
-              }
-            >
-              <input
-                required={!modelOptional}
-                list="model-suggestions"
-                value={draft.model}
-                onChange={(e) => set("model", e.target.value)}
-                placeholder={modelOptional ? "Endpoint default" : undefined}
-                className={inputClass}
-              />
-              <datalist id="model-suggestions">
-                {provider?.models.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
-            </Field>
-          </div>
+          <Field
+            label="Model"
+            hint={
+              modelOptional
+                ? "Optional. Leave blank to use the endpoint's default; a model the key may not use is replaced with one it may."
+                : undefined
+            }
+          >
+            <input
+              required={!modelOptional}
+              value={draft.model}
+              onChange={(e) => set("model", e.target.value)}
+              placeholder={modelOptional ? "Endpoint default" : undefined}
+              className={inputClass}
+            />
+          </Field>
 
           {isCustom && (
             <Field
@@ -373,14 +331,8 @@ export function AgentForm({
 
           <AgentAccess
             agent={agent}
-            slug={draft.slug ?? ""}
-            onSlugChange={(slug) => set("slug", slug)}
             publicBaseUrl={publicBaseUrl}
-            onAccessChanged={onAccessChanged}
-            draftKey={isCustom ? apiKey : draftAccessKey}
-            onDraftKeyChange={setDraftAccessKey}
-            usesEndpointKey={isCustom}
-            canUseEndpointKey={isCustom && keySaved}
+            draftKey={apiKey}
           />
 
           {(keyError ?? error) && (

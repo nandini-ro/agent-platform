@@ -6,19 +6,10 @@ import * as api from "@/services/api";
 import type { Agent } from "@/types";
 
 interface AgentAccessProps {
-  agent: Agent | null; // null = creating; keys need a saved agent
-  slug: string;
-  onSlugChange: (slug: string) => void;
+  agent: Agent | null; // null = creating
   publicBaseUrl: string;
-  /** A key was issued or revoked, so the parent's copy of the agent is stale. */
-  onAccessChanged: () => void;
-  /** Creating only: the key the agent will be saved with. */
+  /** Creating only: the endpoint key entered above, which becomes the access key. */
   draftKey: string;
-  onDraftKeyChange: (key: string) => void;
-  /** Custom endpoint: the access key is the endpoint key, not a new one. */
-  usesEndpointKey: boolean;
-  /** The saved agent has an endpoint key that can become its access key. */
-  canUseEndpointKey: boolean;
 }
 
 /** The backend's rule for a key it did not generate (chosen_key_problem). */
@@ -26,47 +17,24 @@ export function isUsableAccessKey(key: string): boolean {
   return /^[A-Za-z0-9_.~-]{24,200}$/.test(key);
 }
 
-/** A key in the same form the backend generates: agk_ + 32 random bytes. */
-export function newAccessKey(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const b64 = btoa(String.fromCharCode(...bytes));
-  return "agk_" + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /**
- * The agent's public URL and the key that opens it.
+ * The agent's public URL and the key that opens it, read-only.
  *
- * The URL name is part of the form and saved with it. The key is not: issuing
- * and revoking take effect immediately, because the plaintext key exists only
- * in the response to that one request and has to be shown right then.
+ * The access key is always the custom endpoint's own key: it is set from the
+ * key entered above whenever the agent is saved, never edited here.
  */
-export function AgentAccess({
-  agent,
-  slug,
-  onSlugChange,
-  publicBaseUrl,
-  onAccessChanged,
-  draftKey,
-  onDraftKeyChange,
-  usesEndpointKey,
-  canUseEndpointKey,
-}: AgentAccessProps) {
-  const [hasKey, setHasKey] = useState(agent?.has_access_key ?? false);
-  const [hint, setHint] = useState(agent?.access_key_hint ?? null);
-  // The current key, fetched when the panel opens or returned on rotation.
+export function AgentAccess({ agent, publicBaseUrl, draftKey }: AgentAccessProps) {
+  // The saved agent's current key, fetched when the panel opens.
   const [issuedKey, setIssuedKey] = useState<string | null>(null);
   // Why a key that exists cannot be shown (one issued before keys were kept).
   const [keyNote, setKeyNote] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  // A key the user wants to use instead of a generated one.
-  const [ownKey, setOwnKey] = useState("");
 
   const agentId = agent?.id;
-  const initiallyHasKey = agent?.has_access_key ?? false;
+  const hasKey = agent?.has_access_key ?? false;
   useEffect(() => {
-    if (!agentId || !initiallyHasKey) return;
+    if (!agentId || !hasKey) return;
     let cancelled = false;
     api
       .revealAccessKey(agentId)
@@ -75,18 +43,11 @@ export function AgentAccess({
     return () => {
       cancelled = true;
     };
-  }, [agentId, initiallyHasKey]);
+  }, [agentId, hasKey]);
 
-  const shownSlug = slug.trim() || agent?.slug || "<from-agent-name>";
-  const url = `${publicBaseUrl}/v1/agents/${shownSlug}/chat`;
-  // The key the examples below show: the saved agent's, or the new one.
+  const url = `${publicBaseUrl}/v1/agents/${agent?.slug ?? "<from-agent-name>"}/chat`;
   const draft = draftKey.trim();
-  const shownKey = agent
-    ? issuedKey
-    : draft && (!usesEndpointKey || isUsableAccessKey(draft))
-      ? draft
-      : null;
-  const slugPending = Boolean(agent && slug.trim() && slug.trim() !== agent.slug);
+  const shownKey = agent ? issuedKey : isUsableAccessKey(draft) ? draft : null;
   // Values for an external scanner's "E2E Application Testing" form. $INPUT
   // is where the scanner puts each test prompt; $.response is the reply text
   // in this endpoint's JSON (see AgentChatResponse in the backend).
@@ -110,67 +71,13 @@ export function AgentAccess({
     { label: "Response JSON Path", value: "$.response" },
   ];
 
-  const curl = [
-    `curl -X POST ${url} \\`,
-    `  -H "Authorization: Bearer ${shownKey ?? "<access-key>"}" \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -d '{"message": "Hello"}'`,
-  ].join("\n");
-
-  async function issue(chosenKey?: string | "endpoint") {
-    if (!agent) return;
-    if (
-      hasKey &&
-      !window.confirm(
-        chosenKey === "endpoint"
-          ? "Use the endpoint key as the access key? The current key stops working immediately."
-          : chosenKey
-          ? "Use this key? The current key stops working immediately."
-          : "Generate a new key? The current key stops working immediately.",
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const issued = await api.issueAccessKey(agent.id, chosenKey);
-      setIssuedKey(issued.access_key);
-      setOwnKey("");
-      setKeyNote(null);
-      setHint(issued.access_key_hint);
-      setHasKey(true);
-      onAccessChanged();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function revoke() {
-    if (!agent) return;
-    if (
-      !window.confirm(
-        "Revoke the key? The public URL refuses every call until a new key is generated.",
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await api.revokeAccessKey(agent.id);
-      setIssuedKey(null);
-      setHint(null);
-      setHasKey(false);
-      onAccessChanged();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const keyStatus = shownKey
+    ? null
+    : agent && hasKey
+      ? keyNote
+      : draft && !isUsableAccessKey(draft)
+        ? "The endpoint key is too short to use as an access key (24+ letters, digits, - _ . ~)."
+        : "Enter the endpoint key above and save the agent to set its access key.";
 
   async function copy(label: string, text: string) {
     try {
@@ -188,187 +95,30 @@ export function AgentAccess({
         <h3 className="text-xs font-semibold text-slate-700">API access</h3>
         <p className="mt-0.5 text-xs text-slate-500">
           Anyone with this agent&apos;s access key can chat with it at the URL
-          below - and do nothing else. It is separate from the admin key.
+          below. The access key is the custom endpoint key entered above.
         </p>
       </div>
 
-      <label className="block">
-        <span className="mb-1 block text-xs font-semibold text-slate-700">
-          URL name
-        </span>
-        <input
-          value={slug}
-          onChange={(e) => onSlugChange(e.target.value.toLowerCase())}
-          placeholder={agent?.slug ?? "Derived from the agent name"}
-          spellCheck={false}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm outline-none focus:border-slate-500"
+      <ReadOnly
+        label="Endpoint"
+        value={`POST ${url}`}
+        copied={copied === "url"}
+        onCopy={() => copy("url", url)}
+      />
+
+      {shownKey ? (
+        <ReadOnly
+          label="Access key"
+          value={shownKey}
+          copied={copied === "key"}
+          onCopy={() => copy("key", shownKey)}
         />
-        <span className="mt-1 block text-xs text-slate-400">
-          Lowercase letters, digits and hyphens.
-          {slugPending && " Saved with the agent - the old URL then stops working."}
-        </span>
-      </label>
-
-      <div>
-        <span className="mb-1 block text-xs font-semibold text-slate-700">
-          Endpoint
-        </span>
-        <div className="flex gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800">
-            POST {url}
-          </code>
-          <CopyButton
-            label={copied === "url" ? "Copied" : "Copy"}
-            onClick={() => copy("url", url)}
-          />
-        </div>
-      </div>
-
-      {agent ? (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span
-              className={`text-xs ${hasKey ? "text-emerald-700" : "text-amber-700"}`}
-            >
-              {hasKey
-                ? `✓ Access key active (${hint ?? "agk_"}…)`
-                : "No access key - the URL refuses every call."}
-            </span>
-            <div className="ml-auto flex gap-2">
-              {hasKey && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={revoke}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
-                >
-                  Revoke
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => issue()}
-                className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white disabled:bg-slate-300"
-              >
-                {hasKey ? "Rotate key" : "Generate key"}
-              </button>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              value={ownKey}
-              onChange={(e) => setOwnKey(e.target.value)}
-              placeholder="Or paste your own key (24+ characters)"
-              spellCheck={false}
-              autoComplete="off"
-              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-slate-500"
-            />
-            <button
-              type="button"
-              disabled={busy || !ownKey.trim()}
-              onClick={() => issue(ownKey.trim())}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-100 disabled:opacity-50"
-            >
-              Use this key
-            </button>
-          </div>
-
-          {canUseEndpointKey && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => issue("endpoint")}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-100 disabled:opacity-50"
-            >
-              Use the endpoint key as the access key
-            </button>
-          )}
-
-          {hasKey && !issuedKey && keyNote && (
-            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              {keyNote}
-            </p>
-          )}
-
-          {issuedKey && (
-            <div className="space-y-1">
-              <p className="text-xs font-semibold text-slate-700">
-                Access key{" "}
-                <span className="font-normal text-slate-500">
-                  - keep it private; rotate it if it leaks.
-                </span>
-              </p>
-              <div className="flex gap-2">
-                <code className="min-w-0 flex-1 break-all rounded border border-slate-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-800">
-                  {issuedKey}
-                </code>
-                <CopyButton
-                  label={copied === "key" ? "Copied" : "Copy"}
-                  onClick={() => copy("key", issuedKey)}
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <div className="mb-1 flex items-center">
-              <span className="text-xs font-semibold text-slate-700">
-                Example
-              </span>
-              <button
-                type="button"
-                onClick={() => copy("curl", curl)}
-                className="ml-auto text-xs text-slate-500 hover:text-slate-800"
-              >
-                {copied === "curl" ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2 font-mono text-xs leading-relaxed text-slate-100">
-              {curl}
-            </pre>
-          </div>
-        </div>
-      ) : usesEndpointKey ? (
-        <p className="text-xs text-slate-600">
-          {!draft
-            ? "Access key: the endpoint key you enter above. Callers use the same key."
-            : isUsableAccessKey(draft)
-              ? "Access key: the endpoint key above. Anyone given this URL and key can also call your endpoint directly with it."
-              : "The endpoint key is too short to use as an access key (24+ letters, digits, - _ . ~). The agent is saved without one; set it under Configure."}
-        </p>
       ) : (
-        <div className="space-y-1">
-          <p className="text-xs font-semibold text-slate-700">
-            Access key{" "}
-            <span className="font-normal text-slate-500">
-              - saved with the agent. Keep it, or paste your own (24+
-              characters).
-            </span>
+        keyStatus && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            {keyStatus}
           </p>
-          <div className="flex gap-2">
-            <input
-              value={draftKey}
-              onChange={(e) => onDraftKeyChange(e.target.value)}
-              placeholder="Leave empty to create the agent without a key"
-              spellCheck={false}
-              autoComplete="off"
-              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-mono text-xs outline-none focus:border-slate-500"
-            />
-            <button
-              type="button"
-              onClick={() => onDraftKeyChange(newAccessKey())}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 hover:bg-slate-100"
-            >
-              New
-            </button>
-            <CopyButton
-              label={copied === "key" ? "Copied" : "Copy"}
-              onClick={() => copy("key", draftKey)}
-            />
-          </div>
-        </div>
+        )
       )}
 
       <div className="space-y-2 border-t border-slate-200 pt-3">
@@ -379,7 +129,6 @@ export function AgentAccess({
           <p className="text-xs text-slate-500">
             Paste these into a scanner&apos;s E2E application testing settings
             to test this agent through its public URL.
-            {!shownKey && " Set a key above to fill in <access-key>."}
           </p>
         </div>
         {e2e.map((field) => (
@@ -410,14 +159,34 @@ export function AgentAccess({
   );
 }
 
-function CopyButton({ label, onClick }: { label: string; onClick: () => void }) {
+function ReadOnly({
+  label,
+  value,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-600 hover:bg-slate-50"
-    >
-      {label}
-    </button>
+    <div>
+      <span className="mb-1 block text-xs font-semibold text-slate-700">
+        {label}
+      </span>
+      <div className="flex gap-2">
+        <code className="min-w-0 flex-1 truncate rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-800">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 text-xs text-slate-600 hover:bg-slate-50"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
   );
 }
