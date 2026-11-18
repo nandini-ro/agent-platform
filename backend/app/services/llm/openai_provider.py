@@ -47,6 +47,21 @@ _REASONING_TOOL_CONFLICT = "reasoning_effort"
 _NO_SAMPLING_PREFIXES = ("o1", "o3", "o4")
 
 
+def _describe(messages: list[dict], system: str) -> str:
+    """The roles sent and each message's size, for the log: e.g.
+    `system(275 chars) "You are a ...", user(28 chars)`. Only the system
+    prompt's opening is shown; what users type stays out of the log."""
+    parts = []
+    for m in messages:
+        content = m.get("content")
+        size = len(content) if isinstance(content, str) else len(json.dumps(content or ""))
+        part = f"{m.get('role')}({size} chars)"
+        if m.get("role") == "system":
+            part += f" {system[:60]!r}"
+        parts.append(part)
+    return ", ".join(parts)
+
+
 def _accepts_sampling(model: str) -> bool:
     return not model.startswith(_NO_SAMPLING_PREFIXES)
 
@@ -174,6 +189,7 @@ class OpenAIProvider(BaseLLMProvider):
             ]
         if _accepts_sampling(model):
             kwargs["temperature"] = temperature
+        logger.info("sending to model: %s", _describe(kwargs["messages"], system))
         return kwargs
 
     async def _create(self, client, kwargs: dict, **extra):
